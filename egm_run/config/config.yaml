@@ -1,0 +1,76 @@
+defaults:
+  - _self_
+  - dataset: ds_a
+  - model: pyramid_resnet
+  - optimizer: adam
+  - loss: tversky
+  - scheduler: plateu  
+  - collate: padded
+  - transforms: default
+  - override hydra/sweeper: optuna
+  - override hydra/sweeper/sampler: tpe
+
+advanced_features:
+  gradient_mask: true
+  gradient_clipping: 0.8
+
+# device option: cuda:0, cpu
+device:
+  use_cuda: True
+  benchmark: True
+  seed: 40125
+#  seed: 41945
+
+# 8, 2
+train_params:
+  epochs: 160
+  warmup_epochs: 8
+  eval_interval: 2
+
+batch_params:
+  batch_size: 20 #should be 24. Cuda error
+  shuffle: True
+  num_workers: 8
+  drop_last: False
+  collate_fn: ${collate}
+
+output_to_sel: False
+
+# stops training early when conditions are met
+# smooth_index: number of cycles to average for divergence criterion
+early_stopping:
+  patience: 6
+  coolstart: 20
+  mode: max
+  check_finite: True
+  divergence_threshold: 0.1
+
+trial:
+  repeat_trial: 1
+  store_model: True
+  tracked_metric: F1
+
+hydra:
+  run:
+    dir: C:\\Users\\jakub\\Research\\Codes\\Python\\LATNet\\outputs\\${now:%Y-%m-%d}\\${now:%H-%M-%S}
+#    dir: /home/jakubhejc/lib/python/ecg_iegm_dnn/outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}
+  
+  sweep:
+    dir: ${hydra.run.dir}
+    subdir: ${hydra.job.num}
+
+  mode: MULTIRUN
+
+  # bayesian optimization via Optuna sweeper
+  sweeper:
+    sampler:
+#      _target_: optuna.samplers.GridSampler
+      seed: 666
+    direction: maximize
+    study_name: cross-validation
+    storage: null
+    n_trials: 1
+    n_jobs: 1
+
+    params:
+#      device.seed: range(1000, 100000)

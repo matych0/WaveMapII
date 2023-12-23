@@ -1,0 +1,90 @@
+# @package transforms
+
+#  use_on: sample: data only/target/to
+stimuli:
+  _target_: src.transforms.transforms.RandomArtifact
+  probability: 0.5
+  augmentation: True
+  use_on: sample
+
+highpass:
+  _target_: src.transforms.transforms.HighPassFilter
+  critical_f: 5 #Filter critical frequency
+  sampling_f: 2000 #Signal sampling frequency
+  order: 1201
+  augmentation: False
+  use_on: sample
+
+hardclip:
+  _target_: src.transforms.transforms.HardClip
+  threshold: 12463 #Clips signal from the top and bottom by this value
+  augmentation: False
+  apply_to: sample
+
+zscore:
+  _target_: src.transforms.transforms.ZScore
+  mean: 0 #Extracts mean value
+  std: 790 #Extracts standard deviation in uV
+  augmentation: False
+  use_on: sample
+
+# stretch must be after resampling and before one-hot-encoding to work properly on output targets
+stretch:
+  _target_: src.transforms.transforms.RandomStretch
+  probability: 0.5
+  limit: 0.2  #Stretch limit (multiplier = random value from <1, 1+limit>)
+  augmentation: True
+  use_on: all
+
+# Better before crop to ensure no partial labels are excluded
+shift:
+   _target_: src.transforms.transforms.RandomShift
+   probability: 0.8
+   augmentation: True
+   use_on: all
+
+switch:
+ _target_: src.transforms.transforms.RandomChannelSwitch
+ probability: 0.2
+ augmentation: True
+ use_on: all
+
+polarity:
+   _target_: src.transforms.transforms.RandomPolarity
+   probability: 0.1
+   augmentation: True
+   use_on: sample
+
+gaussian_noise:
+   _target_: src.transforms.transforms.RandomGaussian
+   probability: 0.5
+   low_limit: 5
+   high_limit: 20
+   augmentation: True
+   use_on: sample
+
+powerline_noise:
+   _target_: src.transforms.transforms.RandomPowerline
+   probability: 0.5
+   low_limit: 5
+   high_limit: 20
+   augmentation: True
+   use_on: sample
+
+mark_check:
+  _target_:  src.transforms.transforms.CheckMarksValidity
+  augmentation: False
+
+amplification:
+  _target_: src.transforms.transforms.RandomAmplifier
+  probability: 0.8
+  limit: 0.20  #Amplification limit (multiplier = random value from <1-limit, 1+limit>)
+  augmentation: True
+  use_on: sample
+
+# Zeros each channel with probability
+zeros:
+  _target_: src.transforms.transforms.RandomZeroing
+  probability: 0.1
+  augmentation: True
+  use_on: sample

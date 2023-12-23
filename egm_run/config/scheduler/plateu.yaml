@@ -1,0 +1,10 @@
+# @package scheduler
+_target_: src.tools.scheduler.ReduceOnPlateauMax
+mode: max
+threshold: 0.01
+factor: 0.1
+threshold_mode: 'abs'
+patience: 6
+cooldown: 2
+coolstart: 10
+min_lr: 0

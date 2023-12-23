@@ -1,0 +1,42 @@
+# @package model
+_target_: model.pyramid_resnet.LocalActivationResNet
+
+name: LATNet
+version: 1.2.3
+
+in_features: 5
+out_features: 1
+kernel_size: 5
+stem_kernel_size: 17
+
+# Number of ResNet blocks in each stage
+blocks:
+  - 7
+  - 7
+  - 7
+  - 7
+  - 7
+
+# Number of conv. filters in each stage
+features:
+  - 8
+  - 16
+  - 32
+  - 64
+  - 128
+
+decoder_compression: 48
+
+dilations:
+  - 2
+  - 4
+  - 8
+  - 16
+
+activation: PReLU
+normalization: BatchN
+preactivation: True
+
+# Stores tensor from each stage if True, only last stage otherwise
+trace_stages: True
+
