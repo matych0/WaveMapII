@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from nnAudio import features
+#from nnAudio import features
 from typing import Optional, List, Tuple, Union
 
 
@@ -348,12 +348,10 @@ class ResNet(nn.Module):
             _type_: _description_
         """
         # ResNet backbone
-        trace = []
         for stage in self.backbone:
             x = stage(x)
-            trace.append(x)
 
-        return trace
+        return x
 
 
 class PyramidFeatures(nn.Module):
@@ -567,3 +565,10 @@ class ClassificationLayer(nn.Module):
         x = self.linear_layer(x)
 
         return x
+
+
+if __name__ == "__main__":
+    x = torch.rand([32,1,2035])
+    model = ResNet(1)
+    y = model(x)
+    print(y)

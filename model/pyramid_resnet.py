@@ -53,47 +53,6 @@ class LocalActivationResNet(nn.Module):
             trace_stages=trace_stages,
         )
 
-        # dilated receptive unit
-        ru_planes = features[-1]
-        if dilations is not None:
-            self.receptive_head = bb.DilatedReceptiveLayer(
-                in_channels=ru_planes,
-                dilations=dilations,
-                kernel_size=3,
-                activation=activation,
-                normalization=normalization,
-                preactivation=preactivation,
-            )
-        else:
-            self.receptive_head = None
-
-        # decoder
-        self.decoder = bb.PyramidFeatures(
-            features=features,
-            compression=decoder_compression,
-            kernel_size=kernel_size,
-            activation=activation,
-            normalization=normalization,
-            preactivation=preactivation,
-        )
-
-        self.output_gate = bb.Conv1dWrapper(
-            in_channels=decoder_compression,
-            out_channels=decoder_compression,
-            kernel_size=kernel_size,
-            stride=1,
-            bias=False,
-            activation=activation,
-            normalization=normalization,
-            preactivation=preactivation,
-        )
-
-        self.classifier = nn.Conv1d(
-                in_channels=decoder_compression,
-                out_channels=1,
-                kernel_size=1,
-                bias=False,
-            )
 
         # Custom layer weights init
         self.init_weights(orthogonal=False)
@@ -146,18 +105,4 @@ class LocalActivationResNet(nn.Module):
         # get temporal size after ResNet input stem
         w1 = x.shape[-1]
 
-        y1 = self.backbone(x)
-
-        if self.receptive_head is not None:            
-            y1[-1] = y1[-1] + self.receptive_head(y1[-1])
-
-        _, z = self.decoder(y1)
-
-        if self.trace_stages:
-            z = F.interpolate(z, w0, mode='linear')
-
-        # final classification layer
-        z = self.output_gate(z)
-        z = self.classifier(z)
-
-        return z.squeeze(1)
+        return self.backbone(x)
