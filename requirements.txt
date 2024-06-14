@@ -21,7 +21,6 @@ cycler==0.10.0
 Cython==0.29.23
 dask==2021.2.0
 distributed==2021.2.0
-fsspec==0.8.5
 google-auth==1.27.1
 google-auth-oauthlib==0.4.3
 gpytorch==1.3.1
@@ -33,34 +32,33 @@ HeapDict==1.0.1
 hydra-configs-torch @ git+https://github.com/pytorch/hydra-torch/@98072751cf1fdbf2aab1ae461755a4a4f63a4c12#subdirectory=hydra-configs-torch
 hydra-configs-torchvision @ git+https://github.com/pytorch/hydra-torch/@98072751cf1fdbf2aab1ae461755a4a4f63a4c12#subdirectory=hydra-configs-torchvision
 hydra-core==1.2.0
-hydra-optuna-sweeper==1.2.0
+hydra-optuna-sweeper
 hydra-torch @ git+https://github.com/pytorch/hydra-torch@98072751cf1fdbf2aab1ae461755a4a4f63a4c12
 idna==2.10
 importlib-metadata==4.12.0
 importlib-resources==5.1.0
 iniconfig==1.1.1
-Jinja2==2.11.2
 joblib==1.0.0
 jsonpatch==1.31
 jsonpointer==2.0
 kiwisolver==1.3.1
+llvmlite==0.36.0
 locket==0.2.1
 Mako==1.2.1
 Markdown==3.3.4
-MarkupSafe==1.1.1
 matplotlib==3.3.4
 msgpack==1.0.2
 nltk==3.6.3
 nnAudio==0.3.2
+numba==0.53.1
 oauthlib==3.1.0
 omegaconf==2.2.2
-optuna==3.0.1
+optuna
 packaging==21.3
 pandas==1.2.1
 partd==1.1.0
 patsy==0.5.2
 pbr==5.9.0
-Pillow==8.1.0
 plotly==4.14.3
 pluggy==0.13.1
 prettytable==3.3.0
@@ -77,6 +75,7 @@ python-dateutil==2.8.1
 pytorch-ignite==0.4.9
 pytorch-metric-learning==1.7.2
 pytz==2020.5
+PyYAML==5.4.1
 pyzmq==22.0.3
 regex==2021.9.30
 requests==2.25.1
@@ -99,20 +98,15 @@ thop==0.1.1.post2209072238
 threadpoolctl==2.1.0
 toml==0.10.2
 toolz==0.11.1
-torch==1.12.0+cu116
-torchaudio==0.12.0+cu116
 torchfile==0.1.0
 torchview==0.2.6
-torchvision==0.13.0+cu116
 tornado==6.1
 tqdm==4.62.3
-tslearn==0.5.1.0
 typeguard==2.10.0
-typing_extensions==4.3.0
 urllib3==1.26.3
 wcwidth==0.2.5
 websocket-client==0.58.0
 Werkzeug==1.0.1
 xmltodict==0.12.0
 zict==2.0.0
-zipp==3.8.1
+zipp
