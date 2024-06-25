@@ -5,7 +5,7 @@ name: LATNet
 version: 1.2.3
 
 in_features: 5
-out_features: 1
+out_features: 1   #probably not necessary
 kernel_size: 5
 stem_kernel_size: 17
 
@@ -27,6 +27,7 @@ features:
 
 decoder_compression: 48
 
+#probably not necessary
 dilations:
   - 2
   - 4

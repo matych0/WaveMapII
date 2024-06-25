@@ -1,4 +1,4 @@
-import model.building_blocks as bb
+import building_blocks as bb
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -10,7 +10,6 @@ class LocalActivationResNet(nn.Module):
     def __init__(
             self,
             in_features: int,
-            out_features: int,
             kernel_size: int,
             blocks: Union[Tuple, List],
             features: Union[Tuple, List],
@@ -19,7 +18,6 @@ class LocalActivationResNet(nn.Module):
             normalization: str,
             preactivation: bool,
             trace_stages: bool,
-            decoder_compression: int,
             **kwargs,
     ) -> None:
 
@@ -27,7 +25,6 @@ class LocalActivationResNet(nn.Module):
         self._name = kwargs.pop('name', 'defMdl')
         self._version = kwargs.pop('version', '0.0.1')
 
-        dilations = kwargs.pop('dilations', None)
         self.trace_stages = trace_stages
 
         # input gate
@@ -106,3 +103,26 @@ class LocalActivationResNet(nn.Module):
         w1 = x.shape[-1]
 
         return self.backbone(x)
+    
+    
+    
+if __name__ == "__main__":
+    
+    x = torch.rand([32,1,2048])
+    
+    resnet = LocalActivationResNet(
+        in_features=1,
+        out_features=1,
+        kernel_size=5,
+        stem_kernel_size=17,
+        blocks=[9,12,18,9],
+        features=[256,512,1024,2048],
+        activation="PReLU",
+        normalization="BatchN",
+        preactivation=True,
+        trace_stages=True
+    )
+
+    
+    y = resnet(x)
+    print(y.shape)
