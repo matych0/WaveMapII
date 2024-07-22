@@ -1,2 +1,2 @@
-# iekg_segmentation
-Segmentation of atrial signals from within coronary sinus intracardiac recordings
+# WaveMap II
+Atrial fibrillation triggers localization from electroanatomical maps using Weakly-supervised deep learning methods. 
