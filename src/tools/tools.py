@@ -1,14 +1,12 @@
 import os
 import yaml
-import random
 import numpy as np
 import torch
-import h5py
 
 from copy import deepcopy
 
 from statsmodels.stats.gof import chisquare
-from scipy.special import kl_div, rel_entr
+from scipy.special import kl_div
 
 
 class BestModel:

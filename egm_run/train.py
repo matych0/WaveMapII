@@ -1,24 +1,20 @@
-from distutils.log import error
 import os
 import logging
 import json
-import glob
 
 from pathlib import Path
 from collections import defaultdict
 
 import hydra
 from omegaconf import DictConfig
-from hydra.utils import instantiate, call
+from hydra.utils import instantiate
 from hydra.core.hydra_config import HydraConfig
 
 import torch
-import torch.nn.functional as F
 from torch.nn.utils import clip_grad_norm_
 from torch.utils import data
 import numpy as np
 
-import matplotlib.pyplot as plt
 
 from src.dataset import generator
 from src.transforms import transforms as tfs
@@ -46,6 +42,7 @@ from src.tools.metrics import (
 
 from src.tools.tools import output_to_sel
 
+#path to a folder, where the current script is stored 
 base_path = Path(__file__).parent
 
 
@@ -60,29 +57,6 @@ class StatsLogger:
         self.metrics[item_name].append(item)
 
 
-def postprocess_marks(batched_marks, min_length, max_space):
-    if not batched_marks:
-        return list()
-
-    processed_marks = list()
-    for _marks in batched_marks:
-        marks = _marks.copy()
-        i = 0
-        # join marks which are close to each other
-        while i < len(marks) - 1:
-            # join if too close
-            if marks[i+1][0] - marks[i][1] < max_space:
-                marks[i][1] = marks[i+1][1]
-                marks.pop(i+1)
-            else:
-                i += 1
-
-        # filter out too short segments
-        processed_marks.append([pair for pair in marks if pair[1]-pair[0] > min_length])
-
-    return processed_marks
-
-
 # Instantiate evaluation metrics
 avgloss_ = AvgLoss()
 cfm_ = ConfusionMatrix(nb_classes=1, normalize=False, limit=0.5)
@@ -91,7 +65,7 @@ onset_metrics = RegressionMetrics(limit=35, unit_scale=0.5)
 offset_metrics = RegressionMetrics(limit=35, unit_scale=0.5)
 perfile_cfm = PerFileWarehouse(limit=0.5)
 
-warehouse = StatsWarehouse(
+; = StatsWarehouse(
     cols=(
         'Epoch', 'Loop', 'LRate', 'Loss', 'F1',
         'TP', 'FP', 'TN', 'FN',
@@ -187,7 +161,6 @@ class LoopWrapper:
 
         # convert one hot encoding to instances
         instance_estimates = to_instances(y0, threshold=0.5)
-        instance_estimates = postprocess_marks(instance_estimates, 41, 97,)
 
         # store
         for unbatched_y, unbatched_t0, unbatched_masks, unbatched_estimates, unbatched_targets, unbatched_labels, file_name in zip(
@@ -575,6 +548,7 @@ def run_experiment(cfg: DictConfig) -> tuple:
 
             torch.manual_seed(cfg.device.seed)
             logger.info(f'Torch seed: {cfg.device.seed}')
+            #Instantiate Pyramid ResNet with parameters stored in YAML file
             mdl = instantiate(cfg.model)
 
             params = sum(p.numel() for p in mdl.parameters() if p.requires_grad)           
