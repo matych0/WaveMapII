@@ -65,7 +65,7 @@ onset_metrics = RegressionMetrics(limit=35, unit_scale=0.5)
 offset_metrics = RegressionMetrics(limit=35, unit_scale=0.5)
 perfile_cfm = PerFileWarehouse(limit=0.5)
 
-; = StatsWarehouse(
+warehouse = StatsWarehouse(
     cols=(
         'Epoch', 'Loop', 'LRate', 'Loss', 'F1',
         'TP', 'FP', 'TN', 'FN',
