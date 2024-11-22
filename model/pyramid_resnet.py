@@ -108,7 +108,7 @@ class LocalActivationResNet(nn.Module):
     
 if __name__ == "__main__":
     
-    x = torch.rand([32,1,2048])
+    x = torch.rand([4000, 1 ,2035])
     
     resnet = LocalActivationResNet(
         in_features=1,

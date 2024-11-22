@@ -33,7 +33,7 @@ def get_normalization(normalization: str, num_channels: int = 0, num_groups: int
         "LayerN": nn.GroupNorm(1, num_channels),
     }[normalization]
 
-
+#Needs modification
 class Conv1dWrapper(nn.Conv1d):
     """ Conv1d wrapper
     """
@@ -568,7 +568,16 @@ class ClassificationLayer(nn.Module):
 
 
 if __name__ == "__main__":
-    x = torch.rand([32,1,2035])
-    model = ResNet(1)
-    y = model(x)
-    print(y)
+    layer = Conv1dWrapper(
+        in_channels=16,
+        out_channels=32,
+        kernel_size=3,
+        dilation=1,
+        normalization="BatchN",
+        activation="ReLU",
+        preactivation=True,
+    )
+    x = torch.randn(8, 16, 50)  # Batch size 8, 16 channels, sequence length 50
+    output = layer(x)
+    print(output.shape)
+    

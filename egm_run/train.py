@@ -120,13 +120,13 @@ class LoopWrapper:
 
         # Forward pass
         y = self.model(x)
-        y0 = torch.sigmoid(y)
+        y0 = torch.sigmoid(y) 
 
-        # One Hot encoding
+        # One Hot encoding <-
         t0 = to_onehot(resampled_targets, y.shape[-1])
         t0 = torch.FloatTensor(t0).to(x.device)
 
-        # create masks
+        # create masks <-
         masks = torch.zeros(batch_size, y.shape[-1], dtype=torch.bool).to(self.device)
         for b, w in enumerate(widths):
             masks[b, :int(resampling_factor * w)] = True
@@ -134,7 +134,7 @@ class LoopWrapper:
         if self.cfg.advanced_features.gradient_mask and self.model.training:
             y.register_hook(lambda grad: grad * masks.float())
 
-        loss = self.criterion['tversky'](y0, t0, masks)
+        loss = self.criterion['tversky'](y0, t0, masks) #create your own criterion 
 
         # Update model
         if self.model.training:
