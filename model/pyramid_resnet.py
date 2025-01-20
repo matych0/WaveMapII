@@ -101,25 +101,26 @@ class LocalActivationResNet(nn.Module):
 
         # get temporal size after ResNet input stem
         w1 = x.shape[-1]
-
-        return self.backbone(x)
+        
+        x = self.backbone(x)
+        
+        return torch.mean(x,dim=3,keepdim=True)
     
     
     
 if __name__ == "__main__":
     
-    x = torch.rand([4000, 1 ,2035])
+    x = torch.rand([2, 1, 400,2035])
     
     resnet = LocalActivationResNet(
         in_features=1,
-        out_features=1,
-        kernel_size=5,
-        stem_kernel_size=17,
+        kernel_size=(1,5),
+        stem_kernel_size=(1,17),
         blocks=[9,12,18,9],
-        features=[256,512,1024,2048],
-        activation="PReLU",
-        normalization="BatchN",
-        preactivation=True,
+        features=[16,32,64,128],
+        activation="LReLU",
+        normalization="BatchN2D",
+        preactivation=False,
         trace_stages=True
     )
 

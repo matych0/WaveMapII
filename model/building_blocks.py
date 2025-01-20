@@ -34,7 +34,7 @@ def get_normalization(normalization: str, num_channels: int = 0, num_groups: int
     }[normalization]
 
 #Needs modification
-class Conv1dWrapper(nn.Conv1d):
+class Conv1dWrapper(nn.Conv2d):
     """ Conv1d wrapper
     """
 
@@ -42,7 +42,7 @@ class Conv1dWrapper(nn.Conv1d):
             self,
             in_channels: int,
             out_channels: int,
-            kernel_size: int,
+            kernel_size: Tuple[int, ...],
             dilation: int = 1,
             **kwargs,
     ):
@@ -55,7 +55,7 @@ class Conv1dWrapper(nn.Conv1d):
         normalization_groups = kwargs.pop("normalization_groups", 1)
 
         if padding is None:
-            padding = kernel_size // 2 * dilation
+            padding = tuple(kernel_dimension // 2 * dilation for kernel_dimension in kernel_size)
 
         super().__init__(in_channels, out_channels, kernel_size, padding=padding, dilation=dilation, **kwargs)
 
@@ -72,7 +72,7 @@ class Conv1dWrapper(nn.Conv1d):
     def forward(self, x):
 
         if not self.preactivation:
-            x = F.conv1d(x, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
+            x = F.conv2d(x, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
 
         if self.normalization is not None:
             x = self.normalization(x)
@@ -81,7 +81,7 @@ class Conv1dWrapper(nn.Conv1d):
             x = self.activation(x)
 
         if self.preactivation:
-            x = F.conv1d(x, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
+            x = F.conv2d(x, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
 
         return x
 
@@ -100,7 +100,7 @@ class Basic1dStem(nn.Module):
     ResNet input gate.
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, normalization: str = 'BatchN', activation: str = 'LReLU'):
+    def __init__(self, in_channels, out_channels, kernel_size, normalization: str = 'BatchN2D', activation: str = 'LReLU'):
         """
         """
         super().__init__()
@@ -109,7 +109,7 @@ class Basic1dStem(nn.Module):
             in_channels,
             out_channels,
             kernel_size=kernel_size,
-            stride=2,
+            stride=(1,2),
             bias=False,
             normalization=normalization,
             activation=activation,
@@ -118,7 +118,7 @@ class Basic1dStem(nn.Module):
 
     def forward(self, x):
         x = self.conv(x)
-        return F.avg_pool1d(x, kernel_size=3, stride=2, padding=1)
+        return F.avg_pool2d(x, kernel_size=(1,3), stride=(1,2), padding=(0,1))
 
 class ReshapeTensor(nn.Module):
     def __init__(self, shape):
@@ -143,12 +143,12 @@ class ResidualBlock1D(nn.Module):
             kernel_size: int,
             **kwargs,
     ):
-        self.has_stride = True if kwargs.get('stride', 1) > 1 else False
+        self.has_stride = True if kwargs.get('stride', (1,1))[1] > 1 else False
         super().__init__()
 
         self.in_planes = in_planes
         self.out_planes = out_planes
-        stride = kwargs.pop('stride', 1)
+        stride = kwargs.pop('stride', (1,1))
         activation = kwargs.pop('activation', None)
         normalization = kwargs.pop('normalization', None)
         preactivation = kwargs.pop('preactivation', None)
@@ -159,7 +159,7 @@ class ResidualBlock1D(nn.Module):
         self.bottleneck = Conv1dWrapper(
                 in_planes,
                 planes,
-                kernel_size=1,
+                kernel_size=(1,1),
                 activation=activation,
                 normalization=normalization,
                 preactivation=preactivation,
@@ -178,12 +178,12 @@ class ResidualBlock1D(nn.Module):
             **kwargs,
         )
 
-        self.pool = nn.AvgPool1d(kernel_size=stride) if self.has_stride else nn.Identity()
+        self.pool = nn.AvgPool2d(kernel_size=stride) if self.has_stride else nn.Identity()
 
         self.expansion_block = Conv1dWrapper(
             planes,
             out_planes,
-            kernel_size=1,
+            kernel_size=(1,1),
             activation=activation,
             normalization=normalization,
             preactivation=preactivation,
@@ -199,13 +199,13 @@ class ResidualBlock1D(nn.Module):
                     in_planes,
                 ),
 
-                nn.AvgPool1d(kernel_size=stride) if self.has_stride else nn.Identity(),
+                nn.AvgPool2d(kernel_size=stride) if self.has_stride else nn.Identity(),
 
                 Conv1dWrapper(
                     in_planes,
                     out_planes,
-                    kernel_size=1,
-                    stride=1,
+                    kernel_size=(1,1),
+                    stride=(1,1),
                     bias=False,
                     activation=None,
                     normalization=None,
@@ -250,10 +250,10 @@ class ResidualStage1D(nn.Module):
         self.stage = nn.Sequential()
         for block_idx in range(layer_depth):
             if block_idx == 0:
-                stride = 2
+                stride = (1,2)
             else:
                 in_planes = out_planes
-                stride = 1
+                stride = (1,1)
 
             self.stage.append(
                 ResidualBlock1D(
@@ -276,15 +276,15 @@ class ResNet(nn.Module):
     """
     def __init__(
         self,
-        kernel_size: Union[Tuple[int, ...], int] = 3,
+        kernel_size: Union[Tuple[int, ...], int] = (1,3),
         blocks: Union[Tuple, List] = [3, 6, 32, 6],
         features: Union[Tuple, List] = [16, 32, 64, 128],
         activation: str = 'LReLU',
-        normalization: str = 'BatchN',
+        normalization: str = 'BatchN2D',
         preactivation: bool = True,
         trace_stages: bool = True,                        
         normalization_groups: int = 1,
-        kernel_dimension: int = 1,
+        kernel_dimension: int = 2,
         ** kwargs,
     ) -> None:
         """_summary_
@@ -305,9 +305,9 @@ class ResNet(nn.Module):
         assert len(blocks) == len(features)
 
         if kernel_dimension == 2:
-            raise NotImplementedError
-        elif kernel_dimension == 1:
             residual_class = ResidualStage1D
+        elif kernel_dimension == 1:
+            raise NotImplementedError
         else:
             raise ValueError(f'Incorrect kernel size. Expected `int` or `tuple`. Got {type(kernel_size)}')
 
@@ -568,16 +568,21 @@ class ClassificationLayer(nn.Module):
 
 
 if __name__ == "__main__":
-    layer = Conv1dWrapper(
+    """ conv_layer = Conv1dWrapper(
         in_channels=16,
         out_channels=32,
-        kernel_size=3,
+        kernel_size=(1,3),
         dilation=1,
-        normalization="BatchN",
+        normalization="BatchN2D",
         activation="ReLU",
         preactivation=True,
     )
-    x = torch.randn(8, 16, 50)  # Batch size 8, 16 channels, sequence length 50
-    output = layer(x)
+    x = torch.randn(2,1,4000,2035)  # Batch size 8, 16 channels, sequence length 50
+    output = conv_layer(x) """
+    
+    
+    x = torch.randn(2,1,4000,2035)
+    stem_layer = Basic1dStem(in_channels=1, out_channels=16, kernel_size=(1,5))
+    output = stem_layer(x)
     print(output.shape)
     
