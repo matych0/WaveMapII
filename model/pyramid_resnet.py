@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from typing import Optional, List, Tuple, Union
+from building_blocks import ProjectionLayer, AMIL
 
 
 class LocalActivationResNet(nn.Module):
@@ -104,13 +105,16 @@ class LocalActivationResNet(nn.Module):
         
         x = self.backbone(x)
         
-        return torch.mean(x,dim=3,keepdim=True)
+        # Global average pooling
+        x = torch.mean(x,dim=3,keepdim=True)
+        
+        return x.squeeze()
     
     
     
 if __name__ == "__main__":
     
-    x = torch.rand([2, 1, 400,2035])
+    x = torch.rand([1,1,400,2035])
     
     resnet = LocalActivationResNet(
         in_features=1,
@@ -125,5 +129,23 @@ if __name__ == "__main__":
     )
 
     
-    y = resnet(x)
-    print(y.shape)
+    x = resnet(x)
+    print("ResNet output________")
+    print(x.shape)
+    
+    x = x.transpose(-2,-1)
+    print("Transpose__________")
+    print(x.shape)
+    
+    proj = ProjectionLayer(x.shape[-1], 256)
+    x = proj(x)
+    print("Projection___________")
+    print(x.shape)
+    
+    amil = AMIL()
+    
+    risk, a = amil(x)
+    print("AMIL output________________")
+    print(risk)
+    print(a.shape)
+    

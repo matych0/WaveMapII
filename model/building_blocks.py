@@ -565,6 +565,63 @@ class ClassificationLayer(nn.Module):
         x = self.linear_layer(x)
 
         return x
+    
+    
+class ProjectionLayer(nn.Module):
+    def __init__(self, input_dim, output_dim, activation="ReLU"):
+        super(ProjectionLayer, self).__init__()
+        self.fc = nn.Linear(input_dim, output_dim)
+        self.activation = get_activation(activation)
+
+    def forward(self, x):
+        return self.activation(self.fc(x))
+    
+
+class Attention_Net_Gated(nn.Module):
+    def __init__(self, input_size = 256, middle_size = 128, output_size = 1):
+        super(Attention_Net_Gated, self).__init__()
+        self.attention_tanh = [nn.Linear(input_size, middle_size), nn.Tanh()]
+        self.attention_sigmoid = [nn.Linear(input_size, middle_size), nn.Sigmoid()]
+        
+        self.attention_u = nn.Sequential(*self.attention_tanh)
+        self.attention_v = nn.Sequential(*self.attention_sigmoid)
+        
+        self.attention_z = nn.Linear(middle_size, output_size)
+    
+        
+    def forward(self, x):
+        u = self.attention_u(x)
+        v = self.attention_v(x)
+        
+        uv = torch.mul(u, v)
+        
+        z = self.attention_z(uv)
+        return z
+    
+
+class AMIL(nn.Module):
+    def __init__(self, dropout = False):
+        super().__init__()
+        fc = [nn.Linear(256, 256), nn.ReLU()]
+        if dropout:
+            fc.append(nn.Dropout(0.25))
+        attention_net = Attention_Net_Gated(256,128,1)
+        fc.append(attention_net)
+        self.amil_net = nn.Sequential(*fc)
+        self.predictor = nn.Linear(256,1)
+        
+    def forward(self, h):
+        A = self.amil_net(h)
+        A = torch.transpose(A, 1, 0)
+        A_stored = A
+        A = F.softmax(A, dim=1)
+        
+        M = torch.mm(A,h)
+        risk = self.predictor(M)
+        
+        return risk, A_stored
+        
+
 
 
 if __name__ == "__main__":
