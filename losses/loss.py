@@ -44,3 +44,16 @@ class FocalTverskyLoss(nn.Module):
             return loss.pow(self.gamma).mean()
         else:
             return loss.mean()
+        
+
+class CoxLoss(nn.Module):
+    def __init__(self):
+        super(CoxLoss, self).__init__()
+
+    def forward(g_case, g_control, shrink):
+        """CoxCC and CoxTime loss, but with only a single control.
+        """
+        loss = F.softplus(g_control - g_case).mean()
+        if shrink != 0:
+            loss += shrink * (g_case.abs().mean() + g_control.abs().mean())
+        return loss
