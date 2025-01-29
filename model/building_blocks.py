@@ -577,50 +577,92 @@ class ProjectionLayer(nn.Module):
         return self.activation(self.fc(x))
     
 
-class Attention_Net_Gated(nn.Module):
-    def __init__(self, input_size = 256, middle_size = 128, output_size = 1):
-        super(Attention_Net_Gated, self).__init__()
-        self.attention_tanh = [nn.Linear(input_size, middle_size), nn.Tanh()]
-        self.attention_sigmoid = [nn.Linear(input_size, middle_size), nn.Sigmoid()]
         
-        self.attention_u = nn.Sequential(*self.attention_tanh)
-        self.attention_v = nn.Sequential(*self.attention_sigmoid)
-        
+class AttentionNetGated(nn.Module):
+    """
+    Gated Attention Network.
+
+    Args:
+        input_size: Dimension of the input.
+        middle_size: Dimension of the hidden layer.
+        output_size: Dimension of the output.
+    """
+    def __init__(self, input_size=256, middle_size=128, output_size=1):
+        super(AttentionNetGated, self).__init__()
+        self.attention_u = nn.Sequential(
+            nn.Linear(input_size, middle_size),
+            nn.Tanh()
+        )
+        self.attention_v = nn.Sequential(
+            nn.Linear(input_size, middle_size),
+            nn.Sigmoid()
+        )
         self.attention_z = nn.Linear(middle_size, output_size)
-    
-        
+
     def forward(self, x):
         u = self.attention_u(x)
         v = self.attention_v(x)
-        
-        uv = torch.mul(u, v)
-        
+        uv = u * v 
         z = self.attention_z(uv)
         return z
-    
 
-class AMIL(nn.Module):
-    def __init__(self, dropout = False):
+
+class AttentionPooling(nn.Module):
+    """
+    Attention-based Multi-Instance Learning network.
+
+    Args:
+        input_size (int): Dimension of the input.
+        hidden_size (int): Dimension of the hidden layer in the feature extraction network.
+        attention_hidden_size (int): Dimension of the hidden layer in the attention network.
+        output_size (int): Dimension of the output.
+        dropout (bool, optional): Flag to use dropout layer. Defaults to False.
+        dropout_prob (float, optional): Dropout probability. Defaults to 0.25.
+    """
+
+    def __init__(self, 
+                 input_size, 
+                 hidden_size, 
+                 attention_hidden_size, 
+                 output_size, 
+                 dropout=False, 
+                 dropout_prob=0.25):
         super().__init__()
-        fc = [nn.Linear(256, 256), nn.ReLU()]
-        if dropout:
-            fc.append(nn.Dropout(0.25))
-        attention_net = Attention_Net_Gated(256,128,1)
-        fc.append(attention_net)
-        self.amil_net = nn.Sequential(*fc)
-        self.predictor = nn.Linear(256,1)
         
+        self.projection = nn.Sequential(
+            nn.Linear(input_size, hidden_size),
+            nn.ReLU(),
+            nn.Dropout(dropout_prob) if dropout else nn.Identity())
+            
+        self.attention_pool = Attention_Net_Gated(hidden_size, attention_hidden_size, 1) 
+        
+        self.predictor = nn.Linear(hidden_size, output_size)
+
     def forward(self, h):
-        A = self.amil_net(h)
-        A = torch.transpose(A, 1, 0)
-        A_stored = A
-        A = F.softmax(A, dim=1)
+        """
+        Forward pass of the AMIL network.
+
+        Args:
+            h (torch.Tensor): Input tensor of shape (batch_size, num_instances, input_size).
+
+        Returns:
+            tuple: (risk, attention_weights_softmax)
+        """
+
+        h = self.projection(h)
         
-        M = torch.mm(A,h)
-        risk = self.predictor(M)
-        
-        return risk, A_stored
-        
+        #batch_size, num_instances, _ = h.shape  # Get batch size and number of instances
+
+        attention_weights = self.attention_pool(h)  # (batch_size, num_instances, hidden_size)
+        attention_weights = torch.transpose(attention_weights, -2, -1)  # (batch_size, hidden_size, num_instances)
+        attention_weights_softmax = F.softmax(attention_weights, dim=-1) 
+
+        # Batched matrix multiplication
+        avg_instances = torch.matmul(attention_weights_softmax, h)  # (batch_size, hidden_size, input_size)
+        # (attention_weights_softmax * h[:, 0]).sum()
+        risk = self.predictor(avg_instances)  # (batch_size, output_size)
+
+        return risk, attention_weights_softmax
 
 
 
@@ -638,8 +680,8 @@ if __name__ == "__main__":
     output = conv_layer(x) """
     
     
-    x = torch.randn(2,1,4000,2035)
-    stem_layer = Basic1dStem(in_channels=1, out_channels=16, kernel_size=(1,5))
-    output = stem_layer(x)
-    print(output.shape)
+    x = torch.randn(10,400,256)
+    attn_block = AttentionPooling(256,128,64,1)
+    output = attn_block(x)
+    print(output[1].shape)
     
