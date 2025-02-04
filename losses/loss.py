@@ -50,10 +50,19 @@ class CoxLoss(nn.Module):
     def __init__(self):
         super(CoxLoss, self).__init__()
 
-    def forward(g_case, g_control, shrink):
+    def forward(self, g_case, g_control, shrink):
         """CoxCC and CoxTime loss, but with only a single control.
         """
         loss = F.softplus(g_control - g_case).mean()
         if shrink != 0:
             loss += shrink * (g_case.abs().mean() + g_control.abs().mean())
         return loss
+    
+    
+if __name__ == "__main__":
+    g_case = torch.randn([10,1,1])
+    g_control = torch.randn([10,1,1])
+    
+    loss = CoxLoss()
+    
+    print(loss(g_case=g_case, g_control=g_control, shrink=0.1))

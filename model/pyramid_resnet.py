@@ -1,9 +1,9 @@
-import building_blocks as bb
+from model import building_blocks as bb
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from typing import Optional, List, Tuple, Union
-from building_blocks import ProjectionLayer, AMIL
+from model.building_blocks import AttentionPooling
 
 
 class LocalActivationResNet(nn.Module):
@@ -114,7 +114,7 @@ class LocalActivationResNet(nn.Module):
     
 if __name__ == "__main__":
     
-    x = torch.rand([1,1,400,2035])
+    x = torch.rand([10,1,40,2035])
     
     resnet = LocalActivationResNet(
         in_features=1,
@@ -137,12 +137,14 @@ if __name__ == "__main__":
     print("Transpose__________")
     print(x.shape)
     
-    proj = ProjectionLayer(x.shape[-1], 256)
-    x = proj(x)
-    print("Projection___________")
-    print(x.shape)
-    
-    amil = AMIL()
+    amil = AttentionPooling(
+        input_size=128,
+        hidden_size=128,
+        attention_hidden_size=64,
+        output_size=1,
+        dropout=False,
+        dropout_prob=0.25
+    )
     
     risk, a = amil(x)
     print("AMIL output________________")

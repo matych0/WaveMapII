@@ -1,6 +1,6 @@
 from src.dataset.dataset import HDFDataset
 from model.pyramid_resnet import LocalActivationResNet
-from model.building_blocks import ProjectionLayer, AMIL
+from model.building_blocks import AttentionPooling
 from losses.loss import CoxLoss
 
 import torch
@@ -11,17 +11,14 @@ from torch.utils.data import DataLoader
 
 
 class FullModel(nn.Module):
-    def __init__(self, resnet_params, projection_dim):
+    def __init__(self, resnet_params, amil_params):
         super(FullModel, self).__init__()
         
         # Initialize the LocalActivationResNet
         self.resnet = LocalActivationResNet(**resnet_params)
         
-        # Initialize the Projection Layer
-        self.proj = ProjectionLayer(resnet_params['features'][-1], projection_dim)
-        
         # Initialize the AMIL layer
-        self.amil = AMIL()
+        self.amil = AttentionPooling(**amil_params)
 
     def forward(self, x):
         # Pass input through ResNet
@@ -29,9 +26,6 @@ class FullModel(nn.Module):
         
         # Transpose dimensions for compatibility
         x = x.transpose(-2, -1)
-        
-        # Pass through the Projection Layer
-        x = self.proj(x)
         
         # Pass through AMIL
         risk, a = self.amil(x)
@@ -51,11 +45,18 @@ resnet_params = {
     "trace_stages": True
 }
 
-# Projection dimensionality
-projection_dim = 256
+# Define parameters for AMIL
+amil_params = {
+    "input_size": 128,
+    "hidden_size": 128,
+    "attention_hidden_size": 64,
+    "output_size": 1,
+    "dropout": False,
+    "dropout_prob": 0.25
+}
 
 # Instantiate the full model
-model = FullModel(resnet_params, projection_dim)
+model = FullModel(resnet_params, amil_params)
 
 annotation_filepath = "C:/Users/matych/Desktop/SampleDataset/event_data.csv"
 dataset_folderpath = 'C:/Users/matych/Desktop/SampleDataset'
@@ -67,10 +68,10 @@ training_data = HDFDataset(
     transform=None,            
     startswith="LA",
     readjustonce=False, 
-    num_traces=4000           
+    num_traces=4000          
 )
 
-train_dataloader = DataLoader(training_data, batch_size=1, shuffle=True)
+train_dataloader = DataLoader(training_data, batch_size=10, shuffle=True)
 
 
 """ for i in range(20):"""
@@ -82,7 +83,7 @@ g_case, a_case = model(case)
 g_control, a_control = model(control)
 
 loss_fn = CoxLoss()
-loss = loss_fn(g_case, g_control)
+loss = loss_fn(g_case, g_control, shrink=0.1)
 
 print(loss)
     

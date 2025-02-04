@@ -634,7 +634,7 @@ class AttentionPooling(nn.Module):
             nn.ReLU(),
             nn.Dropout(dropout_prob) if dropout else nn.Identity())
             
-        self.attention_pool = Attention_Net_Gated(hidden_size, attention_hidden_size, 1) 
+        self.attention_pool = AttentionNetGated(hidden_size, attention_hidden_size, 1) 
         
         self.predictor = nn.Linear(hidden_size, output_size)
 
@@ -681,7 +681,7 @@ if __name__ == "__main__":
     
     
     x = torch.randn(10,400,256)
-    attn_block = AttentionPooling(256,128,64,1)
+    attn_block = AttentionPooling(256,64,32,1)
     output = attn_block(x)
-    print(output[1].shape)
+    print(output[0].shape)
     
