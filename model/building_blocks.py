@@ -8,10 +8,10 @@ from typing import Optional, List, Tuple, Union
 def get_activation(activation: str):
     if not isinstance(activation, str):
         return None
-
+    # !!! inplace set to False, it might cause excessive model complexity !!!
     return {
-        "ReLU": nn.ReLU(inplace=True),
-        "LReLU": nn.LeakyReLU(negative_slope=0.1, inplace=True),
+        "ReLU": nn.ReLU(inplace=False),
+        "LReLU": nn.LeakyReLU(negative_slope=0.1, inplace=False),
         "PReLU": nn.PReLU(num_parameters=1, init=0.1),
     }[activation]
 
@@ -650,17 +650,14 @@ class AttentionPooling(nn.Module):
         """
 
         h = self.projection(h)
-        
-        #batch_size, num_instances, _ = h.shape  # Get batch size and number of instances
 
-        attention_weights = self.attention_pool(h)  # (batch_size, num_instances, hidden_size)
-        attention_weights = torch.transpose(attention_weights, -2, -1)  # (batch_size, hidden_size, num_instances)
+        attention_weights = self.attention_pool(h)
+        attention_weights = torch.transpose(attention_weights, -2, -1)
         attention_weights_softmax = F.softmax(attention_weights, dim=-1) 
 
         # Batched matrix multiplication
-        avg_instances = torch.matmul(attention_weights_softmax, h)  # (batch_size, hidden_size, input_size)
-        # (attention_weights_softmax * h[:, 0]).sum()
-        risk = self.predictor(avg_instances)  # (batch_size, output_size)
+        avg_instances = torch.matmul(attention_weights_softmax, h)
+        risk = self.predictor(avg_instances)
 
         return risk, attention_weights_softmax
 

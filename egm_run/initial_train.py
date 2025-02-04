@@ -67,24 +67,43 @@ training_data = HDFDataset(
     train=True,
     transform=None,            
     startswith="LA",
-    readjustonce=False, 
-    num_traces=4000          
+    readjustonce=True, 
+    num_traces=4000         
 )
+def main():
+    train_dataloader = DataLoader(training_data, batch_size=10, shuffle=True, num_workers=4)
 
-train_dataloader = DataLoader(training_data, batch_size=10, shuffle=True)
+    loss_fn = CoxLoss()
 
+    optimizer = optim.Adam(model.parameters(), lr=0.001)
 
-""" for i in range(20):"""
-case, control = next(iter(train_dataloader)) 
+    num_epochs = 2  # Number of training epochs
 
+    torch.autograd.set_detect_anomaly(True)
 
+    for epoch in range(num_epochs):
+        total_loss = 0.0  # Track total loss for the epoch
 
-g_case, a_case = model(case)
-g_control, a_control = model(control)
+        for case, control in train_dataloader:
+            # Forward pass
+            g_case, a_case = model(case)
+            g_control, a_control = model(control)
 
-loss_fn = CoxLoss()
-loss = loss_fn(g_case, g_control, shrink=0.1)
+            # Compute loss
+            loss = loss_fn(g_case, g_control, shrink=0.1)
 
-print(loss)
+            # Backpropagation
+            optimizer.zero_grad()  # Reset gradients
+            loss.backward()        # Compute gradients
+            optimizer.step()       # Update weights
+
+            # Accumulate loss
+            total_loss += loss.item()
+
+        # Print loss for this epoch
+        avg_loss = total_loss / len(train_dataloader)
+        print(f"Epoch {epoch+1}/{num_epochs}, Loss: {avg_loss:.4f}")
     
-    
+
+if __name__ == "__main__":
+    main()

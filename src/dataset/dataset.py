@@ -72,12 +72,10 @@ class HDFDataset(Dataset):
 
     def __getitem__(self, idx):
         time = self.reccurence.at[idx, 'days_to_event']
-        print(f"Case time: {time}")
         index = np.searchsorted(self.time_array, time)
         control_idx = np.random.choice(range(index, self.annotations.shape[0]))
         
         control_time = self.annotations.at[control_idx, 'days_to_event']
-        print(f"Control time: {control_time}")
         
         if self.readjustonce:
             case = self.case_maps[idx]
