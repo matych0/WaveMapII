@@ -37,7 +37,7 @@ resnet_params = {
     "in_features": 1,
     "kernel_size": (1, 5),
     "stem_kernel_size": (1, 17),
-    "blocks": [9, 12, 18, 9],
+    "blocks": [2,2,2,2],
     "features": [16, 32, 64, 128],
     "activation": "LReLU",
     "normalization": "BatchN2D",
@@ -67,11 +67,11 @@ training_data = HDFDataset(
     train=True,
     transform=None,            
     startswith="LA",
-    readjustonce=True, 
-    num_traces=4000         
+    readjustonce=False, 
+    num_traces=40         
 )
 def main():
-    train_dataloader = DataLoader(training_data, batch_size=10, shuffle=True, num_workers=4)
+    train_dataloader = DataLoader(training_data, batch_size=10, shuffle=True)
 
     loss_fn = CoxLoss()
 
