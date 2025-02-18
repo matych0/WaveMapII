@@ -95,6 +95,26 @@ class ReshapeTensor(nn.Module):
         return x.view(self.shape)
 
 
+class MaxAntialiasDownsampling(nn.Sequential):
+    """ MaxBlur pooling inspired by "Making Convolutional Networks Shift-Invariant Again" at https://arxiv.org/pdf/1904.11486.
+
+    Box filter is used as weak anti-alias filter instead of Finite Impulse Response filters. 
+    """
+    def __init__(
+        self, in_channels: int, out_channels: int, stride: int = 2,
+        normalization: Optional[str] = None,
+        ) -> None:
+        kernel_size = stride + 1
+        padding = kernel_size // 2
+        
+        super().__init__(
+        nn.MaxPool2d(kernel_size=(1, kernel_size), stride=1, padding=(0, padding)),
+        nn.AvgPool2d(kernel_size=(1, kernel_size), stride=1, padding=(0, padding)),
+        nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=(1, stride), bias=False),
+        get_normalization(normalization,out_channels,1),
+        )
+
+
 class Basic1dStem(nn.Module):
     """
     ResNet input gate.
@@ -118,7 +138,7 @@ class Basic1dStem(nn.Module):
 
     def forward(self, x):
         x = self.conv(x)
-        return F.avg_pool2d(x, kernel_size=(1,3), stride=(1,2), padding=(0,1))
+        return x
 
 class ReshapeTensor(nn.Module):
     def __init__(self, shape):
@@ -677,8 +697,13 @@ if __name__ == "__main__":
     output = conv_layer(x) """
     
     
-    x = torch.randn(10,400,256)
+    """ x = torch.randn(10,400,256)
     attn_block = AttentionPooling(256,64,32,1)
     output = attn_block(x)
-    print(output[0].shape)
+    print(output[0].shape) """
+    
+    x = torch.randn(10,1,400,1016)
+    filter = MaxAntialiasDownsampling(in_channels=1, out_channels=16, stride=4, normalization="BatchN2D")
+    output = filter(x)
+    print(output.shape)
     

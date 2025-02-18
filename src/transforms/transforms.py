@@ -6,6 +6,7 @@ from scipy import signal
 from scipy.signal import firwin, filtfilt, butter
 import json
 from matplotlib import pyplot as plt
+import torch
 
 __all__ = ["Compose", "HardClip", "ZScore", "RandomShift", "RandomStretch", "RandomAmplifier", "RandomLeadSwitch",
            "Resample", "BaseLineFilter", "OneHotEncoding", "AddEmgNoise"
@@ -71,6 +72,24 @@ class BaseTransform:
 
     def transform_y(self, y, **kwargs):
         return y
+
+
+class ZScore(BaseTransform):
+    """Returns Z-score normalized data"""
+    def __init__(self, mean: float = 0, std: float = 1000, use_on='sample', **kwargs):
+        super().__init__(use_on)
+
+        self.mean = mean
+        self.std = std
+
+    def __call__(self, x, y, **kwargs):
+        return super().__call__(x, y)
+
+    def transform_x(self, x, **kwargs):
+        x = x - np.array(self.mean).reshape(-1, 1)
+        x = x / self.std
+
+        return x
 
 
 class ResampleSignals(BaseTransform):
@@ -300,24 +319,6 @@ class HardClip(BaseTransform):
         return x
 
 
-class ZScore(BaseTransform):
-    """Returns Z-score normalized data"""
-    def __init__(self, mean: float = 0, std: float = 1000, use_on='sample', **kwargs):
-        super().__init__(use_on)
-
-        self.mean = mean
-        self.std = std
-
-    def __call__(self, x, y, **kwargs):
-        return super().__call__(x, y)
-
-    def transform_x(self, x, **kwargs):
-        x = x - np.array(self.mean).reshape(-1, 1)
-        x = x / self.std
-
-        return x
-
-
 # --------------------- Classes for data augmentation ----------------------
 # --------------------------------------------------------------------------
 
@@ -426,7 +427,7 @@ class RandomShift(BaseTransform):
 
 class RandomGaussian(BaseTransform):
     """
-        Class randomly shifts signal within temporal dimension
+        Class randomly adds gaussian noise to signal
     """
     def __init__(self, probability: float, low_limit: float, high_limit: float, use_on: str, **kwargs):
         super().__init__(use_on)
@@ -772,4 +773,93 @@ class LowPassFilter(BaseTransform):
         for i, row in enumerate(x):
             y_t[i, :] = signal.fftconvolve(row, self.filter, mode="same")
         return y_t
+
+
+#----------------------Classes for WaveMap augmentation----------------------
+# ---------------------------------------------------------------------------
+class ZScore:
+    """Returns Z-score normalized data"""
+    def __init__(self, mean: float = 0, std: float = 1000, **kwargs):
+        super().__init__()
+
+        self.mean = mean
+        self.std = std
+
+    def __call__(self, x, y, **kwargs):
+        return super().__call__(x, y)
+
+    def transform_x(self, x, **kwargs):
+        x = x - np.array(self.mean).reshape(-1, 1)
+        x = x / self.std
+
+        return x
+    
+class ZScoreNormalize:
+    def __call__(self, x):
+        """
+        Args:
+            x (Tensor): Shape [channels, num_signals, num_samples]
+        
+        Returns:
+            Normalized Tensor with mean ~0 and std ~1 per signal
+        """
+        mean = x.mean(dim=-1, keepdim=True)  # Compute mean along num_samples
+        std = x.std(dim=-1, keepdim=True)    # Compute std along num_samples
+        
+        return (x - mean) / (std + 1e-8)  # Normalize, avoid div by zero
+    
+
+#----------------------Plotting--------------------------------------------
+#--------------------------------------------------------------------------
+
+
+def create_sinusoidal_tensor(frequency, amplitude, offset, sampling_rate, duration, num_signals):
+    """
+    Create a torch tensor representing a sinusoidal signal.
+    
+    :param frequency: Frequency of the sinusoidal signal in Hz
+    :param sampling_rate: Sampling rate in Hz
+    :param duration: Duration of the signal in seconds
+    :return: Torch tensor containing the sinusoidal signal
+    """
+    t = np.linspace(0, duration, int(sampling_rate * duration), endpoint=False)
+    sinusoidal_signal = amplitude[0]*(np.sin(2 * np.pi * frequency[0] * t)) + offset[0]
+    for i in range(num_signals - 1):
+        sinusoidal_signal = np.vstack((sinusoidal_signal, amplitude[i+1]*(np.sin(2 * np.pi * frequency[i+1] * t)) + offset[i+1]))
+                                    
+    return torch.tensor(sinusoidal_signal, dtype=torch.float32)
+
+
+def plot_subplots(data, num_subplots, title="Subplots"):
+    """
+    Plot subplots using Matplotlib.
+    
+    :param data: List of data arrays to plot
+    :param num_subplots: Number of subplots
+    :param title: Title of the plot
+    """
+    fig, ax = plt.subplots(num_subplots, 1, figsize=(10, 10))
+    fig.suptitle(title)
+    
+    for i in range(num_subplots):
+        ax[i].plot(data[i])
+        ax[i].set_title(f"Signal {i+1}")
+        ax[i].set_xlabel("Time")
+        ax[i].set_ylabel("Amplitude")
+    
+    plt.tight_layout()
+    plt.show()
+
+
+if __name__ == "__main__":
+    frequencies = [1, 2, 3, 4]
+    amplitudes = [1.2, 0.8, 1.5, 1.0]
+    offsets = [0.5, 0.3, 0.7, 0.2]
+    x = create_sinusoidal_tensor(frequency=frequencies,amplitude=amplitudes,offset=offsets, sampling_rate=2035, duration=1, num_signals=4)
+    plot_subplots(x, num_subplots=4, title="Sinusoidal Signals")
+    
+    zscore = ZScoreNormalize()
+    
+    plot_subplots(zscore(x), num_subplots=4, title="Z-Score Normalized Signals")
+    
 

@@ -10,13 +10,40 @@ from torch.utils.data import DataLoader
 
 def read_hdf(
         file_path: os.PathLike,
+        metadata_keys: list = None,
     ):  
 
     with h5py.File(file_path, 'r') as hf:
         traces = hf["traces"][:]
         fs = hf["traces"].attrs["sampling_frequency"]    
+        if metadata_keys:
+            metadata = {key: hf["key"] for key in metadata_keys}
+            return traces, fs, metadata
+        else:
+            return traces
+        
+def segmentation():
+    # Example values (assuming they are read from a file and stored as byte strings)
+    fs = 1000  # Sampling frequency in Hz
+    T = 2  # Signal duration in seconds
+    t_last = b'1708200000.500'  # Example Unix timestamp of last sample
+    t_amp = b'1708199999.250'  # Example Unix timestamp of amplitude event
 
-    return traces
+    # Convert bytes to float
+    t_last = float(t_last.decode()) if isinstance(t_last, bytes) else float(t_last)
+    t_amp = float(t_amp.decode()) if isinstance(t_amp, bytes) else float(t_amp)
+
+    # Compute the number of samples
+    N = int(T * fs)
+
+    # Compute the first sample timestamp
+    t_first = t_last - (N - 1) / fs
+
+    # Compute the sample index
+    k = round((t_amp - t_first) * fs)
+
+    print(f"The amplitude occurs at sample index: {k}")
+        
 
 class HDFDataset(Dataset):
     def __init__(
@@ -27,7 +54,8 @@ class HDFDataset(Dataset):
             num_traces: int = None,
             transform = None,            
 			startswith: str = "",
-            readjustonce: bool = False,            
+            readjustonce: bool = False,
+            segment_ms: int = None,            
             ):
         
         self.data_dir = data_dir

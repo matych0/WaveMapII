@@ -17,6 +17,7 @@ class LocalActivationResNet(nn.Module):
             stem_kernel_size: int,
             activation: str,
             normalization: str,
+            downsampling_factor: int,
             preactivation: bool,
             trace_stages: bool,
             **kwargs,
@@ -37,6 +38,13 @@ class LocalActivationResNet(nn.Module):
             kernel_size=stem_kernel_size,
             normalization=None,
             activation=None,
+        )
+        
+        self.downsample = bb.MaxAntialiasDownsampling(
+            in_channels=stem_out_planes,
+            out_channels=stem_out_planes,
+            stride=downsampling_factor,
+            normalization=normalization,
         )
 
         # encoder
@@ -95,20 +103,15 @@ class LocalActivationResNet(nn.Module):
         return torch.tensor(cos_losses, device=module.weight.device).mean()
 
     def forward(self, x):
-        # get temporal size before ResNet input stem
-        w0 = x.shape[-1]
-
+        # Stem
         x = self.stem(x)
-
-        # get temporal size after ResNet input stem
-        w1 = x.shape[-1]
-        
+        # Downsample
+        x = self.downsample(x)
+        # Backbone
         x = self.backbone(x)
         
-        # Global average pooling
-        x = torch.mean(x,dim=3,keepdim=True)
-        
-        return x.squeeze()
+        # Global average pooling    
+        return torch.mean(x,dim=3,keepdim=False)
     
     
     
@@ -124,6 +127,7 @@ if __name__ == "__main__":
         features=[16,32,64,128],
         activation="LReLU",
         normalization="BatchN2D",
+        downsampling_factor=4,
         preactivation=False,
         trace_stages=True
     )
