@@ -10,40 +10,72 @@ from torch.utils.data import DataLoader
 
 def read_hdf(
         file_path: os.PathLike,
+        return_fs: bool = False,
         metadata_keys: list = None,
     ):  
 
     with h5py.File(file_path, 'r') as hf:
-        traces = hf["traces"][:]
-        fs = hf["traces"].attrs["sampling_frequency"]    
+        traces = hf["traces"][:]    
         if metadata_keys:
-            metadata = {key: hf["key"] for key in metadata_keys}
+            metadata = {key: hf[key] for key in metadata_keys}
             return traces, fs, metadata
+        elif return_fs:
+            fs = hf["traces"].attrs["sampling_frequency"]
+            return traces, fs
         else:
             return traces
-        
-def segmentation():
-    # Example values (assuming they are read from a file and stored as byte strings)
-    fs = 1000  # Sampling frequency in Hz
-    T = 2  # Signal duration in seconds
-    t_last = b'1708200000.500'  # Example Unix timestamp of last sample
-    t_amp = b'1708199999.250'  # Example Unix timestamp of amplitude event
+          
+    
+def compute_amplitude_indices(t_amp, t_last, fs, num_samples):
+    """
+    Computes the sample indices where amplitude events occur.
 
-    # Convert bytes to float
-    t_last = float(t_last.decode()) if isinstance(t_last, bytes) else float(t_last)
-    t_amp = float(t_amp.decode()) if isinstance(t_amp, bytes) else float(t_amp)
+    Parameters:
+    t_amp (np.ndarray): Array of Unix timestamps when amplitude events occur.
+    t_last (np.ndarray): Array of Unix timestamps of the last sample.
+    fs (float): Sampling frequency in Hz.
+    num_samples (int): Number of samples in the signal.
 
-    # Compute the number of samples
-    N = int(T * fs)
+    Returns:
+    np.ndarray: Array of sample indices for each amplitude event.
+    """
+    # Ensure inputs are numpy arrays and convert byte strings if necessary
+    t_amp = np.array([float(x.decode()) if isinstance(x, bytes) else float(x) for x in t_amp])
+    t_last = np.array([float(x.decode()) if isinstance(x, bytes) else float(x) for x in t_last])
 
-    # Compute the first sample timestamp
-    t_first = t_last - (N - 1) / fs
+    # Compute the time of the first sample for each signal
+    t_first = t_last - (num_samples - 1) / fs
 
-    # Compute the sample index
-    k = round((t_amp - t_first) * fs)
+    # Compute sample indices (rounded to nearest integer)
+    sample_indices = np.round((t_amp - t_first) * fs).astype(int)
 
-    print(f"The amplitude occurs at sample index: {k}")
-        
+    return sample_indices
+
+
+def segmentation(segment_ms, central_sample, traces, fs):
+    """
+    Segments traces into fixed-length segments.
+    """
+    total_samples = traces.shape[1]
+    segment_samples = np.round((segment_ms/1000)*fs)
+    left_window = segment_samples//2
+    right_window = segment_samples - left_window
+    start, end = (int(max(central_sample - left_window, 0)), int(min(central_sample + right_window, total_samples - 1)))
+    return traces[:, start:end] 
+
+
+def collect_filepaths_and_maps(data, filepaths, maps, data_dir, startswith, readjustonce):
+    for study_id in data["eid"].values:
+        dir_name = glob.glob(os.path.join(data_dir, study_id, f"{startswith}*"), recursive=False)[0]
+        file_fullpath = os.path.join(dir_name, os.path.basename(dir_name + ".hdf"))
+        filepaths.append(file_fullpath)
+        if readjustonce:
+            maps.append(read_hdf(file_fullpath))
+            
+    if readjustonce:
+        return maps
+    else:
+        return filepaths
 
 class HDFDataset(Dataset):
     def __init__(
@@ -129,8 +161,11 @@ class HDFDataset(Dataset):
 
 
 if __name__ == "__main__":
-    annotation_filepath = "C:/Users/matych/Desktop/SampleDataset/event_data.csv"
-    dataset_folderpath = 'C:/Users/matych/Desktop/SampleDataset'
+    """ annotation_filepath = "C:/Users/matych/Desktop/SampleDataset/event_data.csv"
+    dataset_folderpath = 'C:/Users/matych/Desktop/SampleDataset' """
+    
+    annotation_filepath = "C:/Users/matych/Research/SampleDataset/event_data.csv"
+    dataset_folderpath = "C:/Users/matych/Research/SampleDataset"
 
     training_data = HDFDataset(
         annotations_file=annotation_filepath,
@@ -142,7 +177,7 @@ if __name__ == "__main__":
         num_traces=4000           
     )
     
-    train_dataloader = DataLoader(training_data, batch_size=1, shuffle=True)
+    train_dataloader = DataLoader(training_data, batch_size=2, shuffle=True)
     
     
     """ for i in range(20):"""
@@ -150,3 +185,4 @@ if __name__ == "__main__":
     
     print(case.shape)
     print(control.shape)
+    
