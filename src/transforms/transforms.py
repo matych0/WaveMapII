@@ -777,8 +777,8 @@ class LowPassFilter(BaseTransform):
 
 #----------------------Classes for WaveMap augmentation----------------------
 # ---------------------------------------------------------------------------
-class ZScore:
-    """Returns Z-score normalized data"""
+""" class ZScore:
+    Returns Z-score normalized data
     def __init__(self, mean: float = 0, std: float = 1000, **kwargs):
         super().__init__()
 
@@ -792,7 +792,7 @@ class ZScore:
         x = x - np.array(self.mean).reshape(-1, 1)
         x = x / self.std
 
-        return x
+        return x """
     
 class ZScoreNormalize:
     def __call__(self, x):
@@ -830,7 +830,7 @@ def create_sinusoidal_tensor(frequency, amplitude, offset, sampling_rate, durati
     return torch.tensor(sinusoidal_signal, dtype=torch.float32)
 
 
-def plot_subplots(data, num_subplots, title="Subplots"):
+def plot_subplots(data, trans_data, num_subplots, title="Subplots"):
     """
     Plot subplots using Matplotlib.
     
@@ -838,14 +838,21 @@ def plot_subplots(data, num_subplots, title="Subplots"):
     :param num_subplots: Number of subplots
     :param title: Title of the plot
     """
-    fig, ax = plt.subplots(num_subplots, 1, figsize=(10, 10))
+    fig, ax = plt.subplots(num_subplots, 2, figsize=(10, 10))
     fig.suptitle(title)
     
-    for i in range(num_subplots):
-        ax[i].plot(data[i])
+    for i in range(2*num_subplots):
+        if i % 2 == 0:
+            ax[i//2, i%2].plot(data[i//2])
+            ax[i//2, i%2].set_title(f"Signal {i//2+1}")
+            ax[i//2, i%2].set_xlabel("Time")
+            ax[i//2, i%2].set_ylabel("Amplitude")
+        else:
+            pass
+        """ ax[i].plot(data[i])
         ax[i].set_title(f"Signal {i+1}")
         ax[i].set_xlabel("Time")
-        ax[i].set_ylabel("Amplitude")
+        ax[i].set_ylabel("Amplitude") """
     
     plt.tight_layout()
     plt.show()
@@ -858,8 +865,10 @@ if __name__ == "__main__":
     x = create_sinusoidal_tensor(frequency=frequencies,amplitude=amplitudes,offset=offsets, sampling_rate=2035, duration=1, num_signals=4)
     plot_subplots(x, num_subplots=4, title="Sinusoidal Signals")
     
-    zscore = ZScoreNormalize()
+    transform = RandomZeroing(probability=0.5, use_on='sample')
+    x, y = transform(x, None)
     
-    plot_subplots(zscore(x), num_subplots=4, title="Z-Score Normalized Signals")
+    
+    plot_subplots(x, num_subplots=4, title="Z-Score Normalized Signals")
     
 

@@ -52,25 +52,30 @@ def compute_amplitude_indices(t_amp, t_last, fs, num_samples):
     return sample_indices
 
 
-def segmentation(segment_ms, central_sample, traces, fs):
+def segmentation(segment_ms, traces, fs):
     """
     Segments traces into fixed-length segments.
     """
+    central_sample = traces.shape[-1] // 2
     total_samples = traces.shape[1]
     segment_samples = np.round((segment_ms/1000)*fs)
     left_window = segment_samples//2
     right_window = segment_samples - left_window
-    start, end = (int(max(central_sample - left_window, 0)), int(min(central_sample + right_window, total_samples - 1)))
+    start, end = (int(max(central_sample - left_window, 0)), int(min(central_sample + right_window, total_samples)))
     return traces[:, start:end] 
 
 
-def collect_filepaths_and_maps(data, filepaths, maps, data_dir, startswith, readjustonce):
+def collect_filepaths_and_maps(data, data_dir, startswith, readjustonce, segment_ms):
+    filepaths, maps, = list(), list()
     for study_id in data["eid"].values:
         dir_name = glob.glob(os.path.join(data_dir, study_id, f"{startswith}*"), recursive=False)[0]
         file_fullpath = os.path.join(dir_name, os.path.basename(dir_name + ".hdf"))
         filepaths.append(file_fullpath)
         if readjustonce:
-            maps.append(read_hdf(file_fullpath))
+            traces, fs = read_hdf(file_fullpath, return_fs=True)
+            if segment_ms:
+                traces = segmentation(segment_ms, traces, fs)
+            maps.append(traces)
             
     if readjustonce:
         return maps
@@ -105,8 +110,9 @@ class HDFDataset(Dataset):
         
         self.readjustonce = readjustonce
         self.num_traces = num_traces
+        self.segment_ms = segment_ms
 
-        #control filepaths
+        """ #control filepaths
         self.control_filepaths, self.control_maps = list(), list()
         for study_id in self.annotations["eid"].values:
             dir_name = glob.glob(os.path.join(self.data_dir, study_id, f"{startswith}*"), recursive=False)[0]
@@ -124,7 +130,10 @@ class HDFDataset(Dataset):
             self.case_filepaths.append(file_fullpath)
             # read each file memory        
             if self.readjustonce:
-                self.case_maps.append(read_hdf(file_fullpath))
+                self.case_maps.append(read_hdf(file_fullpath)) """
+                
+        self.control_maps = collect_filepaths_and_maps(self.annotations, self.data_dir, startswith, readjustonce, segment_ms)
+        self.case_maps = collect_filepaths_and_maps(self.reccurence, self.data_dir, startswith, readjustonce, segment_ms)
                     
 
     def __len__(self):
@@ -136,14 +145,18 @@ class HDFDataset(Dataset):
         control_idx = np.random.choice(range(index, self.annotations.shape[0]))
         
         control_time = self.annotations.at[control_idx, 'days_to_event']
+        print(f"Case time: {time}, Control time: {control_time}")
         
         if self.readjustonce:
             case = self.case_maps[idx]
             control = self.control_maps[control_idx]
         else:
-            case = read_hdf(self.case_filepaths[idx])
-            control = read_hdf(self.control_filepaths[control_idx])
-
+            case, fs = read_hdf(self.case_maps[idx], return_fs=True)
+            control, fs = read_hdf(self.control_maps[control_idx], return_fs=True)
+            if self.segment_ms:
+                case = segmentation(self.segment_ms, case, fs)
+                control = segmentation(self.segment_ms, control, fs)    
+                
         if self.num_traces:
             indices = torch.randperm(case.shape[0])[:self.num_traces]
             case = case[indices]
@@ -174,7 +187,8 @@ if __name__ == "__main__":
         transform=None,            
         startswith="LA",
         readjustonce=True, 
-        num_traces=4000           
+        num_traces=4000,
+        segment_ms=500,           
     )
     
     train_dataloader = DataLoader(training_data, batch_size=2, shuffle=True)
@@ -183,6 +197,7 @@ if __name__ == "__main__":
     """ for i in range(20):"""
     case, control = next(iter(train_dataloader)) 
     
-    print(case.shape)
-    print(control.shape)
+    print(f"Case shape: {case.shape}")
+    
+    print(f"Control shape: {control.shape}")
     
