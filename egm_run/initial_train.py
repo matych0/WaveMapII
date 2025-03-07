@@ -61,8 +61,12 @@ amil_params = {
 # Instantiate the full model
 model = FullModel(resnet_params, amil_params)
 
-annotation_filepath = "C:/Users/matych/Research/SampleDataset/event_data.csv"
-dataset_folderpath = "C:/Users/matych/Research/SampleDataset"
+# annotation_filepath = "C:/Users/matych/Research/SampleDataset/event_data.csv"
+# dataset_folderpath = "C:/Users/matych/Research/SampleDataset"
+
+annotation_filepath = "/home/guest/lib/data/WaveMapSampleHDF/event_data.csv"
+dataset_folderpath = "/home/guest/lib/data/WaveMapSampleHDF"
+
 
 training_data = HDFDataset(
     annotations_file=annotation_filepath,
@@ -71,7 +75,8 @@ training_data = HDFDataset(
     transform=None,            
     startswith="LA",
     readjustonce=False, 
-    num_traces=500         
+    num_traces=4000,
+    segment_ms=100
 )
 
 def moving_average(data, window_size=10):
@@ -90,7 +95,7 @@ def main(save_model=True, save_plots=True):
     optimizer = torch.optim.SGD(model.parameters(), lr=0.01, momentum=0.9)
     #scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=50, gamma=0.1)
     scheduler = optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.9955)
-    num_epochs = 5   # Number of training epochs
+    num_epochs = 3   # Number of training epochs
 
     #torch.autograd.set_detect_anomaly(True)
 

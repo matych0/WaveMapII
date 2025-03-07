@@ -177,8 +177,11 @@ if __name__ == "__main__":
     """ annotation_filepath = "C:/Users/matych/Desktop/SampleDataset/event_data.csv"
     dataset_folderpath = 'C:/Users/matych/Desktop/SampleDataset' """
     
-    annotation_filepath = "C:/Users/matych/Research/SampleDataset/event_data.csv"
-    dataset_folderpath = "C:/Users/matych/Research/SampleDataset"
+    # annotation_filepath = "C:/Users/matych/Research/SampleDataset/event_data.csv"
+    # dataset_folderpath = "C:/Users/matych/Research/SampleDataset"
+
+    annotation_filepath = "/home/guest/lib/data/WaveMapSampleHDF/event_data.csv"
+    dataset_folderpath = "/home/guest/lib/data/WaveMapSampleHDF"
 
     training_data = HDFDataset(
         annotations_file=annotation_filepath,
@@ -188,7 +191,7 @@ if __name__ == "__main__":
         startswith="LA",
         readjustonce=True, 
         num_traces=4000,
-        segment_ms=500,           
+        segment_ms=100,           
     )
     
     train_dataloader = DataLoader(training_data, batch_size=2, shuffle=True)
