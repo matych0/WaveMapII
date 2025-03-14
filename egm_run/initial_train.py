@@ -7,6 +7,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
+from torch.nn.utils.rnn import pad_sequence
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -74,8 +75,8 @@ training_data = HDFDataset(
     train=True,
     transform=None,            
     startswith="LA",
-    readjustonce=False, 
-    num_traces=4000,
+    readjustonce=True, 
+    #num_traces=4000,
     segment_ms=100
 )
 
@@ -83,8 +84,31 @@ def moving_average(data, window_size=10):
     return np.convolve(data, np.ones(window_size)/window_size, mode='valid')
 
 
+def collate_fn(batch):
+    # batch is a list of (bag, label) pairs
+    case_bags = [item[0].squeeze(0) for item in batch]  # Remove the singleton channel dim -> [H, W]
+    control_bags = [item[1].squeeze(0) for item in batch]  # Remove the singleton channel dim -> [H, W]
+
+    # Pad bags along the H dimension
+    cases_padded_bags = pad_sequence(case_bags, batch_first=True, padding_value=0.0)  # Shape [B, max_H, W]
+    control_padded_bags = pad_sequence(control_bags, batch_first=True, padding_value=0.0)  # Shape [B, max_H, W]
+
+    # Add the singleton channel dim back -> [B, 1, max_H, W]
+    cases_padded_bags = cases_padded_bags.unsqueeze(1)
+    control_padded_bags = control_padded_bags.unsqueeze(1)
+
+    # Create mask: 1 for real instances, 0 for padding
+    cases_mask = torch.tensor([[1] * bag.shape[0] + [0] * (cases_padded_bags.size(2) - bag.shape[0])
+                         for bag in case_bags])
+    
+    control_mask = torch.tensor([[1] * bag.shape[0] + [0] * (control_padded_bags.size(2) - bag.shape[0])
+                         for bag in control_bags])
+    
+
+    return cases_padded_bags, control_padded_bags, cases_mask, control_mask
+
 def main(save_model=True, save_plots=True):
-    train_dataloader = DataLoader(training_data, batch_size=10, shuffle=True)
+    train_dataloader = DataLoader(training_data, batch_size=3, shuffle=True, collate_fn=collate_fn)
 
     loss_fn = CoxLoss()
     
@@ -95,7 +119,7 @@ def main(save_model=True, save_plots=True):
     optimizer = torch.optim.SGD(model.parameters(), lr=0.01, momentum=0.9)
     #scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=50, gamma=0.1)
     scheduler = optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.9955)
-    num_epochs = 3   # Number of training epochs
+    num_epochs = 5   # Number of training epochs
 
     #torch.autograd.set_detect_anomaly(True)
 
@@ -103,7 +127,7 @@ def main(save_model=True, save_plots=True):
     for epoch in range(num_epochs):
         total_loss = 0.0  # Track total loss for the epoch
 
-        for case, control in train_dataloader:
+        for case, control, case_mask, contrl_mask in train_dataloader:
             
             #x = torch.cat([case, control], dim=0)
             # Forward pass
