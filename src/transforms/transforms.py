@@ -8,6 +8,7 @@ import json
 from matplotlib import pyplot as plt
 import torch
 
+
 __all__ = ["Compose", "HardClip", "ZScore", "RandomShift", "RandomStretch", "RandomAmplifier", "RandomLeadSwitch",
            "Resample", "BaseLineFilter", "OneHotEncoding", "AddEmgNoise"
            ]
@@ -827,7 +828,7 @@ def create_sinusoidal_tensor(frequency, amplitude, offset, sampling_rate, durati
     for i in range(num_signals - 1):
         sinusoidal_signal = np.vstack((sinusoidal_signal, amplitude[i+1]*(np.sin(2 * np.pi * frequency[i+1] * t)) + offset[i+1]))
                                     
-    return torch.tensor(sinusoidal_signal, dtype=torch.float32)
+    return sinusoidal_signal
 
 
 def plot_subplots(data, trans_data, num_subplots, title="Subplots"):
@@ -839,36 +840,77 @@ def plot_subplots(data, trans_data, num_subplots, title="Subplots"):
     :param title: Title of the plot
     """
     fig, ax = plt.subplots(num_subplots, 2, figsize=(10, 10))
+    ax = ax.flatten() 
     fig.suptitle(title)
+
+    data_min = min(data.min(), trans_data.min())
+    data_max = max(data.max(), trans_data.max())
+    padding = 0.2
     
     for i in range(2*num_subplots):
         if i % 2 == 0:
-            ax[i//2, i%2].plot(data[i//2])
-            ax[i//2, i%2].set_title(f"Signal {i//2+1}")
-            ax[i//2, i%2].set_xlabel("Time")
-            ax[i//2, i%2].set_ylabel("Amplitude")
+            ax[i].plot(data[i//2])
+            ax[i].set_ylim(data_min - padding, data_max + padding)
+            ax[i].axhline(0, color='red', linestyle='--', linewidth=1)
+            ax[i].set_title(f"Signal {i//2+1}")
+            ax[i].set_xlabel("Samples")
+            ax[i].set_ylabel("Amplitude")
         else:
-            pass
-        """ ax[i].plot(data[i])
-        ax[i].set_title(f"Signal {i+1}")
-        ax[i].set_xlabel("Time")
-        ax[i].set_ylabel("Amplitude") """
+            ax[i].plot(trans_data[i//2])
+            ax[i].set_ylim(data_min - padding, data_max + padding)
+            ax[i].axhline(0, color='red', linestyle='--', linewidth=1)
+            ax[i].set_title(f"Transformed Signal {i//2+1}")
+            ax[i].set_xlabel("Samples")
+            ax[i].set_ylabel("Amplitude")
+
     
+
     plt.tight_layout()
     plt.show()
 
 
 if __name__ == "__main__":
-    frequencies = [1, 2, 3, 4]
-    amplitudes = [1.2, 0.8, 1.5, 1.0]
-    offsets = [0.5, 0.3, 0.7, 0.2]
-    x = create_sinusoidal_tensor(frequency=frequencies,amplitude=amplitudes,offset=offsets, sampling_rate=2035, duration=1, num_signals=4)
-    plot_subplots(x, num_subplots=4, title="Sinusoidal Signals")
+    frequencies = [1, 2, 3, 4, 17]
+    amplitudes = [1.2, 0.8, 1.5, 1.0, 0.7]
+    offsets = [0.5, 0.3, 0.7, 0.2, -0.5]
+    x = create_sinusoidal_tensor(frequency=frequencies,amplitude=amplitudes,offset=offsets, sampling_rate=200, duration=1, num_signals=len(frequencies))
+
+
+
+    """ data = annotation_filepath = "/home/guest/lib/data/WaveMapSampleHDF/event_data.csv"
+    dataset_folderpath = "/home/guest/lib/data/WaveMapSampleHDF"
     
-    transform = RandomZeroing(probability=0.5, use_on='sample')
-    x, y = transform(x, None)
+    from torch.utils.data import DataLoader
+    from src.dataset.dataset import HDFDataset
+    
+    training_data = HDFDataset(
+        annotations_file=annotation_filepath,
+        data_dir=dataset_folderpath,
+        train=True,
+        transform=None,            
+        startswith="LA",
+        readjustonce=False, 
+        num_traces=5,
+        segment_ms=100
+    )
+
+    train_dataloader = DataLoader(training_data, batch_size=10, shuffle=True)
+
+    x, y = next(iter(train_dataloader)) """
+
+    x_orig = np.copy(x)
+    #transform = RandomZeroing(probability=0.5, use_on='sample')
+    #transform = RandomPolarity(probability=1, use_on="sample")
+    #transform = RandomShift(probability=1, use_on="sample")
+    #transform = RandomGaussian(probability=1, use_on="sample", low_limit=10, high_limit=40)
+    #transform = RandomArtifact(probability=1, use_on="sample")
+    transform = RandomPowerline(probability=0.7, use_on="sample", low_limit=5, high_limit=10)
+    # transform = RandomCrop(probability=0.7, use_on="sample", limit=20)
+    # transform = RandomAmplifier(probability=1, use_on="sample", limit=2)
+    # transform = RandomStretch(probability=0.5, use_on="sample", limit=5)
+    x_trans, y_trans = transform(x, None)
     
     
-    plot_subplots(x, num_subplots=4, title="Z-Score Normalized Signals")
+    plot_subplots(x_orig, x_trans, num_subplots=x_orig.shape[0], title="Signal Transform")
     
 
