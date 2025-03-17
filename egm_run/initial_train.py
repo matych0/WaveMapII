@@ -23,7 +23,7 @@ class FullModel(nn.Module):
         # Initialize the AMIL layer
         self.amil = AttentionPooling(**amil_params)
 
-    def forward(self, x):
+    def forward(self, x, mask):
         # Pass input through ResNet
         x = self.resnet(x)
         
@@ -31,7 +31,7 @@ class FullModel(nn.Module):
         x = x.transpose(-2, -1)
         
         # Pass through AMIL
-        risk, a = self.amil(x)
+        risk, a = self.amil(x, mask)
         
         return risk, a
 
@@ -94,8 +94,8 @@ def collate_fn(batch):
     control_padded_bags = pad_sequence(control_bags, batch_first=True, padding_value=0.0)  # Shape [B, max_H, W]
 
     # Add the singleton channel dim back -> [B, 1, max_H, W]
-    cases_padded_bags = cases_padded_bags.unsqueeze(1)
-    control_padded_bags = control_padded_bags.unsqueeze(1)
+    cases_padded_bags = cases_padded_bags.unsqueeze(1).to(torch.float32)
+    control_padded_bags = control_padded_bags.unsqueeze(1).to(torch.float32)
 
     # Create mask: 1 for real instances, 0 for padding
     cases_mask = torch.tensor([[1] * bag.shape[0] + [0] * (cases_padded_bags.size(2) - bag.shape[0])
@@ -133,8 +133,8 @@ def main(save_model=True, save_plots=True):
             # Forward pass
             #g_y, a_y = model(x)
             
-            g_case, a_case = model(case)
-            g_control, a_control = model(control)
+            g_case, a_case = model(case, case_mask)
+            g_control, a_control = model(control, contrl_mask)
             #g_case = g_y[:3, :, :]
             #g_control = g_y[3:, :, :]
             

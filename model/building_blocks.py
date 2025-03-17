@@ -658,7 +658,7 @@ class AttentionPooling(nn.Module):
         
         self.predictor = nn.Linear(hidden_size, output_size)
 
-    def forward(self, h):
+    def forward(self, h, mask=None):
         """
         Forward pass of the AMIL network.
 
@@ -673,6 +673,12 @@ class AttentionPooling(nn.Module):
 
         attention_weights = self.attention_pool(h)
         attention_weights = torch.transpose(attention_weights, -2, -1)
+
+        # Apply masking: set padded positions to -inf
+        if mask is not None:
+            mask = mask.unsqueeze(1)  # Shape (B, 1, N) to match attention shape
+            attention_weights.masked_fill_(mask == 0, float('-inf'))
+
         attention_weights_softmax = F.softmax(attention_weights, dim=-1) 
 
         # Batched matrix multiplication
