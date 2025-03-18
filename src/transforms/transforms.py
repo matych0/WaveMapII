@@ -53,26 +53,19 @@ class Compose(object):
 
 # -------------------- Classes for data transformations --------------------
 # --------------------------------------------------------------------------
+
 class BaseTransform:
-    def __init__(self, use_on, **kwargs):
-        assert use_on in {'sample', 'target', 'all'}
+    def __init__(self, shuffle=False, random_seed=None, **kwargs):
+        self.shuffle = shuffle  
+        self.np_rng = np.random.default_rng(random_seed) # NumPy random generator
 
-        self.use_on = use_on
-        self.rng = random.Random()
+    def __call__(self, x, **kwargs):
+        if self.shuffle:
+            self.np_rng.shuffle(x)     
+        return self.transform(x, **kwargs)
 
-    def __call__(self, x, y, **kwargs):
-        if self.use_on == 'sample':
-            return self.transform_x(x, **kwargs), y
-        if self.use_on == 'target':
-            return x, self.transform_y(y, **kwargs)
-        else:
-            return self.transform_x(x, **kwargs), self.transform_y(y, **kwargs)
-
-    def transform_x(self, x, **kwargs):
-        return x
-
-    def transform_y(self, y, **kwargs):
-        return y
+    def transform(self, x, **kwargs):
+        return x  # Default: return input unchanged
 
 
 class ZScore(BaseTransform):
@@ -324,21 +317,22 @@ class HardClip(BaseTransform):
 # --------------------------------------------------------------------------
 
 class RandomZeroing(BaseTransform):
-    def __init__(self, probability: float, use_on: str, **kwargs):
-        super().__init__(use_on)
+    def __init__(self, probability: float, shuffle=True, random_seed=None, **kwargs):
+        super().__init__(shuffle=shuffle, random_seed=random_seed)
 
         self.probability = probability
 
-    def __call__(self, x, y, **kwargs):
-        return super().__call__(x, y)
+    def __call__(self, x, **kwargs):
+        return super().__call__(x)
 
-    def transform_x(self, x, **kwargs):
-        for i in range(x.shape[0]):
-            dice = self.rng.uniform(0, 1)
-            if dice < self.probability:
-                x[i, :] = 0.0
+    def transform(self, x, **kwargs):
+        num_signals = x.shape[0]
+        num_zeroed = int(self.probability * num_signals)  # Determine how many signals to zero
+        
+        if num_zeroed > 0:
+            x[:num_zeroed, :] = 0.0  # Apply zeroing only to the first 'num_zeroed' signals
+        
         return x
-
 
 class RandomPolarity(BaseTransform):
     """
@@ -899,16 +893,17 @@ if __name__ == "__main__":
     x, y = next(iter(train_dataloader)) """
 
     x_orig = np.copy(x)
-    #transform = RandomZeroing(probability=0.5, use_on='sample')
+    transform = RandomZeroing(probability=0.19, shuffle=True, random_seed=42)
     #transform = RandomPolarity(probability=1, use_on="sample")
     #transform = RandomShift(probability=1, use_on="sample")
     #transform = RandomGaussian(probability=1, use_on="sample", low_limit=10, high_limit=40)
     #transform = RandomArtifact(probability=1, use_on="sample")
-    transform = RandomPowerline(probability=0.7, use_on="sample", low_limit=5, high_limit=10)
+    #transform = RandomPowerline(probability=0.7, use_on="sample", low_limit=5, high_limit=10)
     # transform = RandomCrop(probability=0.7, use_on="sample", limit=20)
     # transform = RandomAmplifier(probability=1, use_on="sample", limit=2)
     # transform = RandomStretch(probability=0.5, use_on="sample", limit=5)
-    x_trans, y_trans = transform(x, None)
+    x_trans = transform(x)
+    x_trans = transform(x_trans)
     
     
     plot_subplots(x_orig, x_trans, num_subplots=x_orig.shape[0], title="Signal Transform")
