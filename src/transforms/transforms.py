@@ -317,7 +317,9 @@ class HardClip(BaseTransform):
 # --------------------------------------------------------------------------
 
 class RandomZeroing(BaseTransform):
-    def __init__(self, probability: float, shuffle=True, random_seed=None, **kwargs):
+    """ Class randomly zeros signals """
+
+    def __init__(self, probability: float, shuffle: bool = True, random_seed: int = None, **kwargs):
         super().__init__(shuffle=shuffle, random_seed=random_seed)
 
         self.probability = probability
@@ -327,29 +329,25 @@ class RandomZeroing(BaseTransform):
 
     def transform(self, x, **kwargs):
         num_signals = x.shape[0]
-        num_zeroed = int(self.probability * num_signals)  # Determine how many signals to zero
-        
-        if num_zeroed > 0:
-            x[:num_zeroed, :] = 0.0  # Apply zeroing only to the first 'num_zeroed' signals
-        
+        num_transformed = int(self.probability * num_signals)  # Determine how many signals to zero
+        x[:num_transformed, :] = 0.0  # Apply zeroing only to the first 'num_zeroed' signals
         return x
 
 class RandomPolarity(BaseTransform):
     """
         Class randomly switches signal polarity
     """
-    def __init__(self, probability: float, use_on: str, **kwargs):
-        super().__init__(use_on)
+    def __init__(self, probability: float, shuffle: bool = True, random_seed: int = None, **kwargs):
+        super().__init__(shuffle=shuffle, random_seed=random_seed)
         self.probability = probability
 
-    def __call__(self, x, y, **kwargs):
-        return super().__call__(x, y)
+    def __call__(self, x, **kwargs):
+        return super().__call__(x)
 
-    def transform_x(self, x, **kwargs):
-        for i in range(x.shape[0]):
-            dice = self.rng.uniform(0, 1)
-            if dice < self.probability:
-                x[i, :] *= -1.0
+    def transform(self, x, **kwargs):
+        num_signals = x.shape[0]
+        num_transformed = int(self.probability * num_signals)  # Determine how many signals to zero
+        x[:num_transformed, :] *= -1.0  # Apply polarity switch only to the first 'num_transformed' signals
         return x
 
 
@@ -357,91 +355,65 @@ class RandomShift(BaseTransform):
     """
         Class randomly shifts signal within temporal dimension
     """
-    def __init__(self, probability: float, use_on: str, **kwargs):
-        super().__init__(use_on)
+    def __init__(self, probability: float, shift_range: float = 0.9, shuffle: bool = True, random_seed: int = None, **kwargs):
+        assert 0.0 < shift_range <= 1.0, "shift_range should be in (0, 1]."
+        
         self.probability = probability
+        self.shift_range = shift_range
+        self.random_seed = random_seed
+        super().__init__(shuffle=shuffle, random_seed=random_seed)
 
-    def __call__(self, x, y, **kwargs):
-        dice = self.rng.uniform(0, 1)
-        if dice < self.probability:
-            max_idx = x.shape[-1] - 1
-            shift = self.rng.uniform(-0.9, 0.9)
-            roll_by = int(max_idx * shift)
-            return super().__call__(x, y, roll_by=roll_by, max_idx=max_idx, **kwargs)
-        else:
-            return x, y
 
-    def transform_x(self, x, **kwargs):
-        roll_by = kwargs.pop('roll_by', None)
-        x = np.roll(x, roll_by, axis=-1)
+    def __call__(self, x, **kwargs):
+        return super().__call__(x)
+
+    def transform(self, x, **kwargs):
+        np.random.seed(self.random_seed)  # Ensure reproducibility if seed is set
+
+        num_signals, signal_length = x.shape
+        num_transformed = round(self.probability * num_signals)  # Number of signals to shift
+
+        # Generate random shift fractions in range [-shift_range, shift_range]
+        shift_fractions = np.random.uniform(-self.shift_range, self.shift_range, size=num_transformed)
+
+        # Convert to integer shift values
+        shifts = np.round(shift_fractions * signal_length).astype(int)
+
+        # Apply shifts using np.roll
+        for i, shift in zip(range(num_transformed), shifts):
+            x[i] = np.roll(x[i], shift, axis=-1)  # Shift along time axis
+
         return x
-
-    def transform_y(self, y, **kwargs):
-        if y is None:
-            return y
-
-        roll_by = kwargs.pop('roll_by', None)
-        max_idx = kwargs.pop('max_idx', None)
-
-        y_t, labels_t = list(), list
-        for mark_tag, mark_vals in y:
-
-            temp = list()
-            for idx, (lower_mark, upper_mark) in enumerate(mark_vals):
-                lower_mark += roll_by
-                upper_mark += roll_by
-
-                # check if lower mark exceeds signal length and adjust if true
-                if lower_mark > max_idx:
-                    lower_mark -= max_idx
-                # check if upper mark exceeds signal length and adjust if true
-                if upper_mark > max_idx:
-                    upper_mark -= max_idx
-
-                # check if lower mark is below 0 and adjust if true
-                if lower_mark < 0:
-                    lower_mark = max_idx + lower_mark - 1
-                # check the same for upper mark
-                if upper_mark < 0:
-                    upper_mark = max_idx + upper_mark - 1
-
-                # check if interval has been splitted up into two
-                if upper_mark < lower_mark:
-                    # create two independent intervals if true
-                    if upper_mark > 0:
-                        temp.append([0, upper_mark])
-                    if lower_mark < max_idx:
-                        temp.append([lower_mark, max_idx])
-                else:
-                    temp.append([lower_mark, upper_mark])
-
-            y_t.append((mark_tag, sorted(temp)))
-
-        return y_t
-
+    
 
 class RandomGaussian(BaseTransform):
     """
         Class randomly adds gaussian noise to signal
     """
-    def __init__(self, probability: float, low_limit: float, high_limit: float, use_on: str, **kwargs):
-        super().__init__(use_on)
+    def __init__(self, probability: float, low_limit: float, high_limit: float, shuffle: bool = True, random_seed: int = None, **kwargs):
+        super().__init__(shuffle=shuffle, random_seed=random_seed)
         self.probability = probability
+        self.random_seed = random_seed
         self.low_limit = low_limit
         self.high_limit = high_limit
+        
 
-    def __call__(self, x, y, **kwargs):
-        return super().__call__(x, y)
+    def __call__(self, x, **kwargs):
+        return super().__call__(x)
 
-    def transform_x(self, x, **kwargs):
-        for i in range(x.shape[0]):
-            dice = self.rng.uniform(0, 1)
-            if dice < self.probability:
-                db = self.rng.uniform(self.low_limit, self.high_limit)
-                # estimate SNR
-                power = np.sqrt(np.mean(x[i, :] ** 2) / (10 ** (db / 10)))
-                # add noise
-                x[i, :] += np.random.normal(loc=0, scale=power, size=x.shape[-1])
+    def transform(self, x, **kwargs):
+        np.random.seed(self.random_seed)  # Ensure reproducibility if seed is set
+
+        num_signals, signal_length = x.shape
+        num_transformed = round(self.probability * num_signals)  # Number of signals to add noise to
+
+        noise_dbs = np.random.uniform(self.low_limit, self.high_limit, size=num_transformed)
+
+        for i, db in zip(range(num_transformed), noise_dbs):
+            # estimate SNR
+            power = np.sqrt(np.mean(x[i, :] ** 2) / (10 ** (db / 10)))
+            # add noise
+            x[i] += np.random.normal(loc=0, scale=power, size=signal_length)
         return x
 
 
@@ -583,24 +555,27 @@ class RandomAmplifier(BaseTransform):
     """
     Class randomly amplifies signal
     """
-    def __init__(self, probability: float, limit: float, use_on: str, **kwargs):
-        super().__init__(use_on)
+    def __init__(self, probability: float, limit: float, shuffle: bool = True, random_seed: int = None, **kwargs):
+        super().__init__(shuffle=shuffle, random_seed=random_seed)
 
+        self.random_seed = random_seed
         self.probability = probability
         self.limit = limit
 
-    def __call__(self, x, y, **kwargs):
-        dice = self.rng.uniform(0, 1)
-        if dice < self.probability:
-            return super().__call__(x, y, **kwargs)
-        else:
-            return x, y
+    def __call__(self, x, **kwargs):
+        return super().__call__(x, **kwargs)
 
-    def transform_x(self, x, **kwargs):
-        h = x.shape[0]
-        for channel_idx in range(h):
-            factor = 1 + self.rng.uniform(-self.limit, self.limit)
-            x[channel_idx, :] = x[channel_idx, :] * factor
+
+    def transform(self, x, **kwargs):
+        np.random.seed(self.random_seed)  # Ensure reproducibility if seed is set
+
+        num_signals, signal_length = x.shape
+        num_transformed = round(self.probability * num_signals)  # Number of signals to amplify
+
+        amplify_factors = np.random.uniform(-self.limit, self.limit, size=num_transformed)
+        print(amplify_factors)
+        x[:num_transformed] *= amplify_factors[:, np.newaxis]
+
         return x
 
 
@@ -893,17 +868,17 @@ if __name__ == "__main__":
     x, y = next(iter(train_dataloader)) """
 
     x_orig = np.copy(x)
-    transform = RandomZeroing(probability=0.19, shuffle=True, random_seed=42)
-    #transform = RandomPolarity(probability=1, use_on="sample")
-    #transform = RandomShift(probability=1, use_on="sample")
-    #transform = RandomGaussian(probability=1, use_on="sample", low_limit=10, high_limit=40)
+    #transform = RandomZeroing(probability=0.19, shuffle=True, random_seed=42)
+    #transform = RandomPolarity(probability=0.5, shuffle=True, random_seed=42)
+    #transform = RandomShift(probability=0.5, shuffle=True, random_seed=42)
+    #transform = RandomGaussian(probability=0.5, low_limit=10, high_limit=40, shuffle=True, random_seed=42)
     #transform = RandomArtifact(probability=1, use_on="sample")
     #transform = RandomPowerline(probability=0.7, use_on="sample", low_limit=5, high_limit=10)
     # transform = RandomCrop(probability=0.7, use_on="sample", limit=20)
-    # transform = RandomAmplifier(probability=1, use_on="sample", limit=2)
+    transform = RandomAmplifier(probability=1, limit=2, shuffle=True, random_seed=42)
     # transform = RandomStretch(probability=0.5, use_on="sample", limit=5)
     x_trans = transform(x)
-    x_trans = transform(x_trans)
+    #x_trans = transform(x_trans)
     
     
     plot_subplots(x_orig, x_trans, num_subplots=x_orig.shape[0], title="Signal Transform")
