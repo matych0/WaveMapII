@@ -6,6 +6,7 @@ from scipy import signal
 from scipy.signal import firwin, filtfilt, butter
 import json
 from matplotlib import pyplot as plt
+from scipy.signal import resample
 import torch
 
 
@@ -578,53 +579,91 @@ class RandomAmplifier(BaseTransform):
 
         return x
 
-
 class RandomStretch(BaseTransform):
     """
     Class randomly stretches temporal dimension of signal
     """
-    def __init__(self, probability: float, limit: float, use_on='sample', **kwargs):
-        super().__init__(use_on)
+    def __init__(self, probability: float, limit: float, shuffle: bool = True, random_seed: int = None, **kwargs):
+        super().__init__(ushuffle=shuffle, random_seed=random_seed)
 
+        self.random_seed = random_seed
         self.probability = probability
         self.limit = limit
 
-    def __call__(self, x, y, **kwargs):
-        dice = self.rng.uniform(0, 1)
-        if dice < self.probability:
-            factor = 1 + self.rng.uniform(0, self.limit)
-            return super().__call__(x, y, factor=factor)
-        else:
-            return x, y
+    def __call__(self, x, **kwargs):
+        return super().__call__(x, **kwargs)
 
-    def transform_x(self, x, **kwargs):
-        factor = kwargs.pop('factor', None)
-        w = x.shape[-1]
-        new_w = int(factor * w)
+    def transform(self, x, **kwargs):
+        np.random.seed(self.random_seed)  # Ensure reproducibility if seed is set
+        num_signals, width = x.shape
+        num_transformed = round(self.probability * num_signals)  # Number of signals to amplify
+        
+        factors = np.random.uniform(1/self.limit, self.limit, size=num_transformed)
+        new_widths = (factors * width).astype(int)
+        print(new_widths)
 
-        x_t = np.zeros((x.shape[0], new_w))
-        for i, row in enumerate(x):
-            x_t[i, :] = np.interp(
-                np.linspace(0, w - 1, new_w),
-                np.linspace(0, w - 1, w),
-                row,
+        for i, new_w in zip(range(num_transformed), new_widths):
+            if new_w > width:
+                xp_new = np.linspace(0, width - 1, width)
+                xp = np.linspace(0, new_w - 1, width)                
+            elif new_w < width:
+                xp_new = np.linspace(0, new_w - 1, width)
+                xp = np.linspace(0, width - 1, width)
+            else:
+                continue
+            
+            x[i, :] = np.interp(
+                xp_new,
+                xp,
+                x[i, :],
             )
-        return x_t
+        return x
 
-    def transform_y(self, y, **kwargs):
-        if y is None:
-            return y
 
-        factor = kwargs.pop('factor', None)
+class RandomTemporalScale(BaseTransform):
+    """
+    Class randomly stretches temporal dimension of signal
+    """
+    def __init__(self, probability: float, limit: float, shuffle: bool = True, random_seed: int = None, **kwargs):
+        super().__init__(ushuffle=shuffle, random_seed=random_seed)
 
-        y_t = list()
-        for mark_tag, mark_vals in y:
-            mark_vals = [[int(item[0] * factor), int(item[1] * factor)] for item in mark_vals]
+        self.random_seed = random_seed
+        self.probability = probability
+        self.limit = limit
 
-            y_t.append(
-                (mark_tag, mark_vals)
-            )
-        return y_t
+    def __call__(self, x, **kwargs):
+        return super().__call__(x, **kwargs)
+
+    def transform(self, x, **kwargs):
+        np.random.seed(self.random_seed)  # Ensure reproducibility if seed is set
+        num_signals, width = x.shape
+        num_transformed = round(self.probability * num_signals)  # Number of signals to amplify
+
+        factors = np.random.uniform(1/self.limit, self.limit, size=num_transformed)
+        new_widths = (factors * width).astype(int)
+        print(new_widths)
+
+        x_resampled = np.zeros_like(x)
+
+        for i, new_w in zip(range(num_transformed), new_widths):
+            resampled_signal = resample(x[i], new_w)  # Resample
+
+            # Compute padding or cropping offsets
+            diff = width - new_w
+            if diff < 0:  # Crop equally from both sides
+                start = -diff // 2
+                end = start + width
+                x_resampled[i] = resampled_signal[start:end]
+            else:  # Pad equally on both sides
+                pad_left = diff // 2
+                pad_right = diff - pad_left
+                x_resampled[i, pad_left:-pad_right or None] = resampled_signal
+
+        # Copy the remaining signals unchanged
+        x_resampled[num_transformed:] = x_resampled[num_transformed:]
+
+        return x_resampled
+
 
 
 class RemoveBordelineMarks:
@@ -875,8 +914,9 @@ if __name__ == "__main__":
     #transform = RandomArtifact(probability=1, use_on="sample")
     #transform = RandomPowerline(probability=0.7, use_on="sample", low_limit=5, high_limit=10)
     # transform = RandomCrop(probability=0.7, use_on="sample", limit=20)
-    transform = RandomAmplifier(probability=1, limit=2, shuffle=True, random_seed=42)
-    # transform = RandomStretch(probability=0.5, use_on="sample", limit=5)
+    # transform = RandomAmplifier(probability=1, limit=2, shuffle=True, random_seed=42)
+    # transform = RandomStretch(probability=1, limit=2, shuffle=True, random_seed=42)
+    transform = RandomTemporalScale(probability=1, limit=2, shuffle=True, random_seed=42)
     x_trans = transform(x)
     #x_trans = transform(x_trans)
     
