@@ -1,39 +1,54 @@
 from src.dataset.dataset import HDFDataset
-from model.pyramid_resnet import LocalActivationResNet
-from model.building_blocks import AttentionPooling
+from src.dataset.collate import collate_padding
+from model.cox_mil_resnet import CoxAttentionResnet
 from losses.loss import CoxLoss
+from src.transforms.transforms import RandomPolarity, RandomAmplifier, RandomGaussian, RandomTemporalScale, RandomShift, ZScore
 
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from torch.nn.utils.rnn import pad_sequence
+from torchvision import transforms
 
 import matplotlib.pyplot as plt
 import numpy as np
 import datetime
 
-class FullModel(nn.Module):
-    def __init__(self, resnet_params, amil_params):
-        super(FullModel, self).__init__()
-        
-        # Initialize the LocalActivationResNet
-        self.resnet = LocalActivationResNet(**resnet_params)
-        
-        # Initialize the AMIL layer
-        self.amil = AttentionPooling(**amil_params)
 
-    def forward(self, x, mask):
-        # Pass input through ResNet
-        x = self.resnet(x)
-        
-        # Transpose dimensions for compatibility
-        x = x.transpose(-2, -1)
-        
-        # Pass through AMIL
-        risk, a = self.amil(x, mask)
-        
-        return risk, a
+# annotation_filepath = "C:/Users/matych/Research/SampleDataset/event_data.csv"
+# dataset_folderpath = "C:/Users/matych/Research/SampleDataset"
+
+annotation_filepath = "/home/guest/lib/data/WaveMapSampleHDF/event_data.csv"
+dataset_folderpath = "/home/guest/lib/data/WaveMapSampleHDF"
+
+seed = 42
+
+
+polarity =  RandomPolarity(probability=0.5, shuffle=True, random_seed=seed)
+temporal_scale = RandomTemporalScale(probability=0.5, limit=2, shuffle=True, random_seed=seed)
+amplifier = RandomAmplifier(probability=0.5, limit=2, shuffle=True, random_seed=seed)
+noise = RandomGaussian(probability=0.5, low_limit=10, high_limit=40, shuffle=True, random_seed=seed)
+shift = RandomShift(probability=0.5, shuffle=True, random_seed=seed)
+zcrore = ZScore(mean=1, std = 2)
+
+training_data = HDFDataset(
+    annotations_file=annotation_filepath,
+    data_dir=dataset_folderpath,
+    train=True,
+    transform=transforms.Compose([
+        polarity,
+        temporal_scale,
+        amplifier,
+        noise,
+        shift,
+    ]),
+    startswith="LA",
+    readjustonce=True, 
+    #num_traces=4000,
+    segment_ms=100
+)
+
 
 # Define parameters for LocalActivationResNet
 resnet_params = {
@@ -60,56 +75,15 @@ amil_params = {
 }
 
 # Instantiate the full model
-model = FullModel(resnet_params, amil_params)
-
-# annotation_filepath = "C:/Users/matych/Research/SampleDataset/event_data.csv"
-# dataset_folderpath = "C:/Users/matych/Research/SampleDataset"
-
-annotation_filepath = "/home/guest/lib/data/WaveMapSampleHDF/event_data.csv"
-dataset_folderpath = "/home/guest/lib/data/WaveMapSampleHDF"
-
-
-training_data = HDFDataset(
-    annotations_file=annotation_filepath,
-    data_dir=dataset_folderpath,
-    train=True,
-    transform=None,            
-    startswith="LA",
-    readjustonce=True, 
-    #num_traces=4000,
-    segment_ms=100
-)
+model = CoxAttentionResnet(resnet_params, amil_params)
 
 def moving_average(data, window_size=10):
     return np.convolve(data, np.ones(window_size)/window_size, mode='valid')
 
 
-def collate_fn(batch):
-    # batch is a list of (bag, label) pairs
-    case_bags = [item[0].squeeze(0) for item in batch]  # Remove the singleton channel dim -> [H, W]
-    control_bags = [item[1].squeeze(0) for item in batch]  # Remove the singleton channel dim -> [H, W]
-
-    # Pad bags along the H dimension
-    cases_padded_bags = pad_sequence(case_bags, batch_first=True, padding_value=0.0)  # Shape [B, max_H, W]
-    control_padded_bags = pad_sequence(control_bags, batch_first=True, padding_value=0.0)  # Shape [B, max_H, W]
-
-    # Add the singleton channel dim back -> [B, 1, max_H, W]
-    cases_padded_bags = cases_padded_bags.unsqueeze(1).to(torch.float32)
-    control_padded_bags = control_padded_bags.unsqueeze(1).to(torch.float32)
-
-    # Create mask: 1 for real instances, 0 for padding
-    cases_mask = torch.tensor([[1] * bag.shape[0] + [0] * (cases_padded_bags.size(2) - bag.shape[0])
-                         for bag in case_bags])
-    
-    control_mask = torch.tensor([[1] * bag.shape[0] + [0] * (control_padded_bags.size(2) - bag.shape[0])
-                         for bag in control_bags])
-    
-
-    return cases_padded_bags, control_padded_bags, cases_mask, control_mask
-
 def main(save_model=True, save_plots=True):
-    train_dataloader = DataLoader(training_data, batch_size=3, shuffle=True, collate_fn=collate_fn)
-
+    
+    train_dataloader = DataLoader(training_data, batch_size=3, shuffle=True, collate_fn=collate_padding)
     loss_fn = CoxLoss()
     
     losses = []

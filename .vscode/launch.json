@@ -9,7 +9,7 @@
             "name": "Python: Run Module",
             "type": "python",
             "request": "launch",
-            "module": "egm_run.initial_train",
+            "module": "scripts.initial_train",
             "console": "integratedTerminal"
           }
     ]

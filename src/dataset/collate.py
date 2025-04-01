@@ -1,60 +1,38 @@
 import torch
-import numpy as np
-import random
+from torch.nn.utils.rnn import pad_sequence
+from typing import List, Tuple, Any
 
 
-class BaseCollate:
-    def __init__(self, dim: int):
-        self.dim = dim
-
-    def __call__(self, batch):
-        return self.collate(batch)
-
-    def collate(self, batch):
-        raise NotImplementedError
-
-
-class PaddedCollate(BaseCollate):
+def collate_padding(batch: List[Tuple[torch.Tensor, torch.Tensor]]) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """
-    Create padded mini-batch of training samples along dimension dim
+    Collates a batch of (case_bag, control_bag) pairs for processing by zero padding.
+    This function pads the bags to the maximum length in the batch and creates masks
+    to indicate the real instances and padding.
+
+    Args:
+        batch: A list of tuples, where each tuple contains a case bag and a control bag.
+
+    Returns:
+        A tuple containing padded case bags, padded control bags, case masks, and control masks.
     """
-    def __init__(self, dim: int, val: float):
-        super(PaddedCollate, self).__init__(dim=dim)
-        self.padval = val
+    case_bags: List[torch.Tensor] = [item[0] for item in batch]  
+    control_bags: List[torch.Tensor] = [item[1] for item in batch]
 
-    def collate(self, batch):
-        """
-        Returns padded mini-batch
-        :param batch: (list of tuples): tensor, label
-        :return: padded_array - a tensor of all examples in 'batch' after padding
-        labels - a LongTensor of all labels in batch
-        sample_lengths – origin lengths of input data
-        """
-        mask, widths = None, None
-        batch_size = len(batch)
-        in_channels = batch[0][0].shape[0]
+    # Pad bags along the H dimension
+    cases_padded_bags: torch.Tensor = pad_sequence(case_bags, batch_first=True, padding_value=0.0)  # Shape [B, max_H, W]
+    control_padded_bags: torch.Tensor = pad_sequence(control_bags, batch_first=True, padding_value=0.0)  # Shape [B, max_H, W]
 
-        widths = [sample[0].shape[self.dim] for sample in batch]
+    # Add the singleton channel dim back -> [B, 1, max_H, W]
+    cases_padded_bags = cases_padded_bags.unsqueeze(1).to(torch.float32)
+    control_padded_bags = control_padded_bags.unsqueeze(1).to(torch.float32)
 
-        # find the longest sequence
-        x = self.padval * np.ones((batch_size, in_channels, max(widths)), dtype=np.float32)
+    # Create mask: 1 for real instances, 0 for padding
+    cases_mask: torch.Tensor = torch.tensor(
+        [[1] * bag.shape[0] + [0] * (cases_padded_bags.size(2) - bag.shape[0]) for bag in case_bags]
+    )
 
-        # preallocate padded NumPy array
-        files, target, labels = list(), list(), list()
+    control_mask: torch.Tensor = torch.tensor(
+        [[1] * bag.shape[0] + [0] * (control_padded_bags.size(2) - bag.shape[0]) for bag in control_bags]
+    )
 
-        # fill out preallocated padded tensors by data samples and target one-hot encoded labels
-        for idx, sample in enumerate(batch):
-            x[idx, :, :widths[idx]] = sample[0]
-
-            if sample[1] is None:
-                target.append([])
-            else:
-                target.append(sample[1][0][1])
-
-            labels.append(sample[2])
-            files.append(sample[3])
-
-        # Pass to Torch Tensor
-        x = torch.from_numpy(x).float()
-
-        return x, target, widths, mask, labels, files
+    return cases_padded_bags, control_padded_bags, cases_mask, control_mask

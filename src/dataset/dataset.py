@@ -187,7 +187,7 @@ class HDFDataset(Dataset):
         case = torch.from_numpy(case)
         control = torch.from_numpy(control)
         
-        return case.unsqueeze(0), control.unsqueeze(0)
+        return case, control
 
 
 if __name__ == "__main__":

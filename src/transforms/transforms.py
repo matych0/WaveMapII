@@ -38,7 +38,7 @@ class Compose(object):
     def __call__(self, x, y, **kwargs):
         if self.transforms:
             for t in self.transforms:
-                x, y = t(x, y, **kwargs)
+                x, y = t(x, **kwargs)
 
         return x, y
 
@@ -71,18 +71,33 @@ class BaseTransform:
 
 class ZScore(BaseTransform):
     """Returns Z-score normalized data"""
-    def __init__(self, mean: float = 0, std: float = 1000, use_on='sample', **kwargs):
-        super().__init__(use_on)
+    def __init__(self, mean: float = 0, std: float = 1000, **kwargs):
+        super().__init__()
 
         self.mean = mean
         self.std = std
 
-    def __call__(self, x, y, **kwargs):
-        return super().__call__(x, y)
+    def __call__(self, x, **kwargs):
+        return super().__call__(x)
 
-    def transform_x(self, x, **kwargs):
-        x = x - np.array(self.mean).reshape(-1, 1)
-        x = x / self.std
+    def transform(self, x, **kwargs):
+        x = (x - self.mean) / self.std
+
+        return x
+    
+
+class Normalize(BaseTransform):
+    """Normalizes each signal to range [-1, 1]"""
+    def __init__(self, **kwargs):
+        super().__init__()
+
+    def __call__(self, x, **kwargs):
+        return super().__call__(x)
+
+    def transform(self, x, **kwargs):
+        x_min = np.min(x, axis=1, keepdims=True)
+        x_max = np.max(x, axis=1, keepdims=True)
+        x = (x - x_min ) / (x_max - x_min + 1e-8) * 2 - 1
 
         return x
 
@@ -786,22 +801,6 @@ class LowPassFilter(BaseTransform):
 
 #----------------------Classes for WaveMap augmentation----------------------
 # ---------------------------------------------------------------------------
-""" class ZScore:
-    Returns Z-score normalized data
-    def __init__(self, mean: float = 0, std: float = 1000, **kwargs):
-        super().__init__()
-
-        self.mean = mean
-        self.std = std
-
-    def __call__(self, x, y, **kwargs):
-        return super().__call__(x, y)
-
-    def transform_x(self, x, **kwargs):
-        x = x - np.array(self.mean).reshape(-1, 1)
-        x = x / self.std
-
-        return x """
     
 class ZScoreNormalize:
     def __call__(self, x):
@@ -916,7 +915,9 @@ if __name__ == "__main__":
     # transform = RandomCrop(probability=0.7, use_on="sample", limit=20)
     # transform = RandomAmplifier(probability=1, limit=2, shuffle=True, random_seed=42)
     # transform = RandomStretch(probability=1, limit=2, shuffle=True, random_seed=42)
-    transform = RandomTemporalScale(probability=1, limit=2, shuffle=True, random_seed=42)
+    #transform = RandomTemporalScale(probability=1, limit=2, shuffle=True, random_seed=42)
+    #transform = ZScore(mean=1, std = 2)
+    transform = Normalize()
     x_trans = transform(x)
     #x_trans = transform(x_trans)
     
