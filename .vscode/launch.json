@@ -9,7 +9,7 @@
             "name": "Python: Run Module",
             "type": "python",
             "request": "launch",
-            "module": "scripts.initial_train",
+            "module": "scripts.hyperparameter_optimization",
             "console": "integratedTerminal"
           }
     ]

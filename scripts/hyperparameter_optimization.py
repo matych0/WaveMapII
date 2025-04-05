@@ -13,14 +13,16 @@ from src.transforms.transforms import (RandomPolarity, RandomAmplifier, RandomGa
 import datetime
 import numpy as np
 
+
 def objective(trial):
     """Objective function for Optuna hyperparameter optimization."""
+
     # Hyperparameters to optimize
     lr = trial.suggest_loguniform("lr", 1e-5, 1e-2)
     momentum = trial.suggest_uniform("momentum", 0.5, 0.99)
     gamma = trial.suggest_uniform("gamma", 0.9, 0.999)
-    batch_size = trial.suggest_categorical("batch_size", [2, 4, 8])
-    num_epochs = 10
+    batch_size = trial.suggest_categorical("batch_size", [1, 2, 3])
+    num_epochs = 5
 
     # Dataset & Dataloader
     dataset = HDFDataset(
@@ -32,6 +34,31 @@ def objective(trial):
         readjustonce=True,
         segment_ms=100
     )
+
+    # Define parameters for LocalActivationResNet
+    resnet_params = {
+        "in_features": 1,
+        "kernel_size": (1, 5),
+        "stem_kernel_size": (1, 17),
+        "blocks": [3,4,6,3],
+        "features": [16, 32, 64, 128],
+        "activation": "LReLU",
+        "downsampling_factor": 4,
+        "normalization": "BatchN2D",
+        "preactivation": False,
+        "trace_stages": True
+    }
+
+    # Define parameters for AMIL
+    amil_params = {
+        "input_size": 128,
+        "hidden_size": 128,
+        "attention_hidden_size": 64,
+        "output_size": 1,
+        "dropout": False,
+        "dropout_prob": 0.25
+    }
+
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_padding)
     
     # Model
@@ -42,7 +69,7 @@ def objective(trial):
     scheduler = optim.lr_scheduler.ExponentialLR(optimizer, gamma=gamma)
     
     # TensorBoard logger
-    log_dir = f"runs/optuna_trial_{trial.number}_{datetime.datetime.now().strftime('%Y%m%d-%H%M%S')}"
+    log_dir = f"runs/optuna_experiment_{datetime.datetime.now().strftime('%d%m%Y-%H%M%S')}/optuna_trial_{trial.number}"
     writer = SummaryWriter(log_dir)
     
     for epoch in range(num_epochs):
@@ -61,10 +88,12 @@ def objective(trial):
         writer.add_scalar("Loss/train", avg_loss, epoch)
         scheduler.step()
     
+    writer.add_hparams({"learning_rate": lr, "batch_size": batch_size, "momentum": momentum, "gamma": gamma}, {'hparam/loss': avg_loss})
+
     writer.close()
     return avg_loss
 
 if __name__ == "__main__":
     study = optuna.create_study(direction="minimize")
-    study.optimize(objective, n_trials=50)
+    study.optimize(objective, n_trials=5)
     print("Best hyperparameters:", study.best_params)
