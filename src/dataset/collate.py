@@ -36,3 +36,34 @@ def collate_padding(batch: List[Tuple[torch.Tensor, torch.Tensor]]) -> Tuple[tor
     )
 
     return cases_padded_bags, control_padded_bags, cases_mask, control_mask
+
+
+def collate_validation(batch: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """
+    Collates a batch of (case_bag, control_bag, mask) tuples for processing by zero padding.
+    This function pads the bags to the maximum length in the batch and creates masks
+    to indicate the real instances and padding.
+
+    Args:
+        batch: A list of tuples, where each tuple contains a case bag, control bag, and mask.
+
+    Returns:
+        A tuple containing padded case bags, padded control bags, case masks, and control masks.
+    """
+    durations: List[torch.Tensor] = [item[0] for item in batch]  # Extract events from the batch
+    events: List[torch.Tensor] = [item[1] for item in batch]  # Extract durations from the batch
+    traces_bags: List[torch.Tensor] = [item[2] for item in batch]  # Extract trace bags from the batch
+
+    # Pad bags along the H dimension
+    traces_padded_bags: torch.Tensor = pad_sequence(traces_bags, batch_first=True, padding_value=0.0)  # Shape [B, max_H, W]
+
+    # Add the singleton channel dim back -> [B, 1, max_H, W]
+    traces_padded_bags = traces_padded_bags.unsqueeze(1).to(torch.float32)
+
+    # Create mask: 1 for real instances, 0 for padding
+    traces_masks: torch.Tensor = torch.tensor(
+        [[1] * bag.shape[0] + [0] * (traces_padded_bags.size(2) - bag.shape[0]) for bag in traces_bags]
+    )
+
+    return durations, events, traces_padded_bags, traces_masks
+

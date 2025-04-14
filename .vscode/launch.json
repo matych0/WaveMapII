@@ -7,9 +7,9 @@
 
         {
             "name": "Python: Run Module",
-            "type": "python",
+            "type": "debugpy",
             "request": "launch",
-            "module": "scripts.hyperparameter_optimization",
+            "module": "scripts.hyperparam_optim_eval",
             "console": "integratedTerminal"
           }
     ]

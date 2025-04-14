@@ -173,10 +173,11 @@ class HDFDataset(Dataset):
                 case = segment_signals(case, case_indices, self.segment_ms, case_fs)
                 control = segment_signals(control, control_indices, self.segment_ms, control_fs)   
         
-        np.random.shuffle(case)
-        np.random.shuffle(control)
+
         
         if self.num_traces:
+            np.random.shuffle(case)
+            np.random.shuffle(control)
             case = case[:self.num_traces]
             control = control[:self.num_traces]
 
@@ -188,9 +189,67 @@ class HDFDataset(Dataset):
         control = torch.from_numpy(control)
         
         return case, control
+    
+
+class ValidationDataset(Dataset):
+    def __init__(
+            self,
+            annotations_file: os.PathLike,
+            data_dir: os.PathLike,
+            transform = None,            
+            startswith: str = "",
+            readjustonce: bool = True,
+            segment_ms: int = None,            
+            ):
+        
+        self.data_dir = data_dir
+        self.transform = transform
+        self.annotations = pd.read_csv(annotations_file)
+        # get training/validation studies only
+        self.annotations = self.annotations[self.annotations["training"] == False]
+        # sort by days to event
+        #self.annotations = self.annotations.sort_values(by='days_to_event')
+        self.annotations.reset_index(drop=True, inplace=True)
+        #self.time_array = self.annotations['days_to_event']
+        
+        self.readjustonce = readjustonce
+        self.segment_ms = segment_ms
+        
+        self.maps = collect_filepaths_and_maps(self.annotations, self.data_dir, startswith, readjustonce, segment_ms)
+
+    def __len__(self):
+        return len(self.annotations)
+
+    def __getitem__(self, idx):
+        duration = self.annotations.at[idx, 'days_to_event']
+        event = self.annotations.at[idx, 'reccurence']
+
+        if self.readjustonce:
+            traces = self.maps[idx]
+                
+        else:
+            traces, fs, metadata = read_hdf(self.maps[idx], return_fs=True, metadata_keys=["rov LAT", "end time"])
+            if self.segment_ms:
+                t_amp, t_last = metadata["rov LAT"], metadata["end time"]
+                case_indices = compute_amplitude_indices(t_amp, t_last, fs, traces.shape[1])
+                traces = segment_signals(traces, case_indices, self.segment_ms, fs)
+                
+        if self.transform:
+            traces = self.transform(traces)
+            
+        traces = torch.from_numpy(traces)
+
+        validation_data = {
+            "traces": traces,
+            "duration": duration,
+            "event": event
+        }
+        return duration, event, traces
 
 
 if __name__ == "__main__":
+    from collate import collate_validation
+
     """ annotation_filepath = "C:/Users/matych/Desktop/SampleDataset/event_data.csv"
     dataset_folderpath = 'C:/Users/matych/Desktop/SampleDataset' """
     
@@ -200,7 +259,7 @@ if __name__ == "__main__":
     annotation_filepath = "/home/guest/lib/data/WaveMapSampleHDF/event_data.csv"
     dataset_folderpath = "/home/guest/lib/data/WaveMapSampleHDF"
 
-    training_data = HDFDataset(
+    """ training_data = HDFDataset(
         annotations_file=annotation_filepath,
         data_dir=dataset_folderpath,
         train=True,
@@ -214,10 +273,29 @@ if __name__ == "__main__":
     train_dataloader = DataLoader(training_data, batch_size=1, shuffle=True)
     
     
-    """ for i in range(20):"""
+    # for i in range(20):
     case, control = next(iter(train_dataloader)) 
     
     print(f"Case shape: {case.shape}")
     
-    print(f"Control shape: {control.shape}")
+    print(f"Control shape: {control.shape}") """
+
+    validation_data = ValidationDataset(
+        annotations_file=annotation_filepath,
+        data_dir=dataset_folderpath,
+        transform=None,            
+        startswith="LA",
+        readjustonce=True, 
+        segment_ms=100,           
+    )
+
+    validation_dataloader = DataLoader(validation_data, batch_size=2, shuffle=False, collate_fn=collate_validation)
+
+    duration, event, traces, traces_masks = next(iter(validation_dataloader))
+    print(f"Durations: {duration}")
+    print(f"Events: {event}")
+    print(f"Traces shape: {traces.shape}")
+
+
+
     
