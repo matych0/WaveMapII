@@ -22,6 +22,15 @@ import pandas as pd
 ANNOTATION_DIR = "/home/guest/lib/data/WaveMapSampleHDF/event_data.csv"
 DATA_DIR = "/home/guest/lib/data/WaveMapSampleHDF"
 
+#hyperparameters
+KERNEL_SIZE = (1, 5)
+STEM_KERNEL_SIZE = (1, 17)
+BLOCKS = [7, 7, 7, 7]
+FEATURES = [16, 32, 64, 128]
+ACTIVATION = "LReLU"
+DOWNSAMPLING_FACTOR = 2
+NORMALIZATION = "BatchN2D"
+
 
 def get_predictions(loader, model):
     all_risks, all_durations, all_events = [], [], []
@@ -39,11 +48,16 @@ def objective(trial):
     """Objective function for Optuna hyperparameter optimization."""
 
     # Hyperparameters to optimize
-    lr = trial.suggest_loguniform("lr", 1e-5, 1e-2)
-    momentum = trial.suggest_uniform("momentum", 0.5, 0.99)
-    gamma = trial.suggest_uniform("gamma", 0.9, 0.999)
-    batch_size = trial.suggest_categorical("batch_size", [1, 2, 3])
-    num_epochs = 10
+    projection_nodes = trial.suggest_categorical('projection_nodes', [64, 128, 256])
+    attention_nodes = trial.suggest_categorical('attention_nodes', [32, 64, 128])
+    dropout = trial.suggest_categorical('dropout', [0.0, 0.25, 0.5])
+    cox_regularization = trial.suggest_categorical('cox_regularization', [0.0, 1e-3, 1e-2, 1e-1])
+    learning_rate = trial.suggest_categorical('learning_rate', [1e-5, 1e-4, 1e-3, 1e-2])
+    weight_decay = trial.suggest_categorical('weight_decay', [1e-5, 1e-4, 1e-3, 1e-2])
+
+
+    batch_size = trial.suggest_categorical("batch_size", [1,2,3])
+    num_epochs =  20 #trial.suggest_categorical("num_epochs", [50,100,200])
 
     # Dataset & Dataloader
     train_dataset = HDFDataset(
@@ -68,29 +82,29 @@ def objective(trial):
     # Define parameters for LocalActivationResNet
     resnet_params = {
         "in_features": 1,
-        "kernel_size": (1, 5),
-        "stem_kernel_size": (1, 17),
-        "blocks": [3,4,6,3],
-        "features": [16, 32, 64, 128],
-        "activation": "LReLU",
-        "downsampling_factor": 4,
-        "normalization": "BatchN2D",
+        "kernel_size": KERNEL_SIZE,
+        "stem_kernel_size": STEM_KERNEL_SIZE,
+        "blocks": BLOCKS,
+        "features": FEATURES,
+        "activation": ACTIVATION,
+        "downsampling_factor": DOWNSAMPLING_FACTOR,
+        "normalization": NORMALIZATION,
         "preactivation": False,
-        "trace_stages": True
+        "trace_stages": True,
     }
 
     # Define parameters for AMIL
     amil_params = {
-        "input_size": 128,
-        "hidden_size": 128,
-        "attention_hidden_size": 64,
+        "input_size": FEATURES[-1],
+        "hidden_size": projection_nodes,
+        "attention_hidden_size": attention_nodes,
         "output_size": 1,
-        "dropout": False,
-        "dropout_prob": 0.25
+        "dropout": True,
+        "dropout_prob": dropout,
     }
 
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_padding)
-    val_dataloader = DataLoader(val_dataset, batch_size=2, shuffle=False, collate_fn=collate_validation)
+    val_dataloader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_validation)
     date = datetime.datetime.now().strftime('%d%m%Y-%H%M%S')
 
 
@@ -102,8 +116,8 @@ def objective(trial):
     model = CoxAttentionResnet(resnet_params, amil_params)
     loss_fn = CoxLoss()
     cindex = ConcordanceIndex()
-    optimizer = optim.SGD(model.parameters(), lr=lr, momentum=momentum)
-    scheduler = optim.lr_scheduler.ExponentialLR(optimizer, gamma=gamma)
+    optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=num_epochs, eta_min=0.0)
     
     model.train()
 
@@ -121,20 +135,31 @@ def objective(trial):
             total_train_loss += loss.item()
 
         avg_train_loss = total_train_loss / len(train_dataloader)
-        writer.add_scalar("Loss/train", avg_train_loss, epoch)
+        writer.add_scalar("Train loss", avg_train_loss, epoch)
+
+        current_lr = optimizer.param_groups[0]['lr']
+        writer.add_scalar("Learning Rate", current_lr, epoch)
+
 
         # Evaluation mode
         model.eval()
-        val_preds , val_durations, val_events = get_predictions(val_dataloader)
+        val_preds , val_durations, val_events = get_predictions(val_dataloader, model)
         concordance_val = cindex(estimate=val_preds.view(-1), event=val_events.view(-1), time=val_durations.view(-1))
-        writer.add_scalar("Eval/concordance_val", concordance_val, epoch)
+        writer.add_scalar("C-index evaluation", concordance_val, epoch)
 
         scheduler.step()
 
     # Log best values (e.g., final validation cindex and training loss)
     writer.add_hparams(
-        {"learning_rate": lr, "batch_size": batch_size, "momentum": momentum, "gamma": gamma},
-        {'hparam/concordance_val': concordance_val, 'hparam/loss': avg_train_loss}
+        {"projection_nodes": projection_nodes,
+         "attention_nodes": attention_nodes,
+         "dropout": dropout,
+         "cox_regularization": cox_regularization,
+         "learning_rate": learning_rate,
+         "weight_decay": weight_decay,
+         "batch_size": batch_size},
+        {"hparam/concordance_val": concordance_val, 
+         "hparam/loss": avg_train_loss}
     )
 
     writer.close()
@@ -142,6 +167,22 @@ def objective(trial):
 
 
 if __name__ == "__main__":
-    study = optuna.create_study(direction="maximize")
-    study.optimize(objective, n_trials=5)
+
+    sampler = optuna.samplers.TPESampler(multivariate=True, seed=42)# n_startup_trials=10, )
+    
+    study = optuna.create_study(
+        study_name="tuesday_tryout",
+        storage="sqlite:///tuesday_tryout.db",
+        direction="maximize",
+        sampler=sampler,
+        load_if_exists=True
+    )
+
+    study.optimize(objective, n_trials=3)
     print("Best hyperparameters:", study.best_params)
+    optuna.visualization.plot_optimization_history(study)
+    optuna.visualization.plot_param_importances(study)
+    optuna.visualization.plot_slice(study)
+    optuna.visualization.plot_parallel_coordinate(study)
+    optuna.visualization.plot_contour(study)
+    optuna.visualization.plot_edf(study)

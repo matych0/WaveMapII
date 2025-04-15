@@ -52,6 +52,7 @@ class CoxLoss(nn.Module):
 
     def forward(self, g_case, g_control, shrink):
         """CoxCC and CoxTime loss, but with only a single control.
+        https://github.com/havakv/pycox/blob/master/pycox/models/loss.py
         """
         loss = F.softplus(g_control - g_case).mean()
         if shrink != 0:
