@@ -97,8 +97,8 @@ def segmentation(segment_ms, traces, fs):
 def collect_filepaths_and_maps(data, data_dir, startswith, readjustonce, segment_ms):
     filepaths, maps, = list(), list()
     for study_id in data["eid"].values:
-        dir_name = glob.glob(os.path.join(data_dir, study_id, f"{startswith}*"), recursive=False)[0]
-        file_fullpath = os.path.join(dir_name, os.path.basename(dir_name + ".hdf"))
+        file_fullpath = glob.glob(os.path.join(data_dir, study_id, f"{startswith}*"), recursive=False)[0]
+        #file_fullpath = os.path.join(dir_name, os.path.basename(dir_name + ".hdf"))
         filepaths.append(file_fullpath)
         if readjustonce:
             traces, fs, metadata = read_hdf(file_fullpath, return_fs=True, metadata_keys=["rov LAT", "end time"])

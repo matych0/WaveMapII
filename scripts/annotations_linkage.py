@@ -1,0 +1,169 @@
+import pandas as pd
+from sklearn.model_selection import StratifiedKFold
+
+
+def complete_ids(main_csv_path, mapping_csv_path, output_csv_path=None):
+    # Load the data
+    df_main = pd.read_csv(main_csv_path)
+    df_mapping = pd.read_csv(mapping_csv_path)
+
+    # Ensure the mapping DataFrame does not contain duplicates
+    df_mapping = df_mapping.dropna(subset=['WaveMapID', 'EnSiteID']).drop_duplicates(subset='EnSiteID')
+
+    # Merge to fill missing WaveMapID
+    df_completed = df_main.merge(df_mapping, on='EnSiteID', how='left', suffixes=('', '_mapped'))
+
+    # Fill in missing WaveMapID from mapping
+    df_completed['WaveMapID'] = df_completed['WaveMapID'].fillna(df_completed['WaveMapID_mapped']).astype('int')
+
+    # Drop the temporary mapped column
+    df_completed = df_completed.drop(columns=['WaveMapID_mapped'])
+
+    # Optionally save to a new CSV
+    if output_csv_path:
+        df_completed.to_csv(output_csv_path, index=False)
+
+    return df_completed
+
+
+def add_elapsed_days(completed_csv_path, elapsed_csv_path, output_csv_path=None):
+    """
+    Adds 'ElapsedDays' column to completed DataFrame based on 'WaveMapID' matching 'ID' from elapsed file.
+
+    Parameters:
+    - completed_csv_path (str): Path to the CSV with completed WaveMapIDs.
+    - elapsed_csv_path (str): Path to the CSV containing 'ID' and 'ElapsedDays'.
+    - output_csv_path (str, optional): If provided, saves the result to this path.
+
+    Returns:
+    - pd.DataFrame: Merged DataFrame with 'ElapsedDays' column added.
+    """
+
+    # Load both files
+    df_completed = pd.read_csv(completed_csv_path)
+    df_elapsed = pd.read_csv(elapsed_csv_path)
+
+    # Make sure 'ID' and 'ElapsedDays' are in df_elapsed
+    if not {'ID', 'ElapsedDays'}.issubset(df_elapsed.columns):
+        raise ValueError("Elapsed days CSV must contain 'ID' and 'ElapsedDays' columns.")
+
+    # Merge based on WaveMapID from df_completed and ID from df_elapsed
+    df_merged = df_completed.merge(df_elapsed[['ID', 'ElapsedDays']],
+                                   left_on='WaveMapID', right_on='ID', how='left')
+
+    # Drop the redundant 'ID' column
+    df_merged = df_merged.drop(columns=['ID'])
+
+    # Create recurrence column: 1 if ElapsedDays is present, 0 if NaN
+    df_merged['recurrence'] = df_merged['ElapsedDays'].notna().astype(int)
+
+    # Fill NaN ElapsedDays with 365 and convert to integer
+    df_merged['ElapsedDays'] = df_merged['ElapsedDays'].fillna(365).astype(int)
+
+    # Save if path provided
+    if output_csv_path:
+        df_merged.to_csv(output_csv_path, index=False)
+
+    return df_merged
+
+
+def mark_exported(df, exported_ids_csv_path, output_csv_path=None):
+    """
+    Adds an 'exported' column to the DataFrame by merging with exported IDs.
+    'exported' is 1 if 'EnSiteID' is in the exported list, else 0.
+
+    Parameters:
+    - df (pd.DataFrame): DataFrame containing the 'EnSiteID' column.
+    - exported_ids_csv_path (str): Path to CSV with exported 'EnSiteID' values.
+
+    Returns:
+    - pd.DataFrame: The DataFrame with an added 'exported' column.
+    """
+    df = pd.read_csv(df)
+    # Load and prepare the exported IDs
+    df_exported = pd.read_csv(exported_ids_csv_path)
+
+    if 'EnSiteID' not in df_exported.columns:
+        raise ValueError("Exported CSV must contain 'EnSiteID' column.")
+
+    # Standardize to string and strip whitespace
+    df_exported['EnSiteID'] = df_exported['EnSiteID'].astype(str).str.strip()
+
+    # Add an indicator column before merging
+    df_exported['exported'] = 1
+
+    # Merge to assign the 'exported' status
+    df_merged = df.merge(df_exported[['EnSiteID', 'exported']],
+                         on='EnSiteID', how='left')
+
+    # Fill NaNs in 'exported' with 0 (i.e., not exported)
+    df_merged['exported'] = df_merged['exported'].fillna(0).astype(int)
+
+    # Save if path provided
+    if output_csv_path:
+        df_merged.to_csv(output_csv_path, index=False)
+
+    return df_merged
+
+
+def assign_stratified_folds(annotation_csv_path, output_csv_path=None, n_splits=3, random_state=5032001):
+    """
+    Reads the annotation CSV, filters by 'exported' == 1, drops 'exported' column,
+    and assigns stratified fold numbers (1-based) to a new 'fold' column.
+
+    Parameters:
+    - annotation_csv_path (str): Path to CSV with 'exported' and 'recurrence' columns.
+    - n_splits (int): Number of folds (default is 3).
+    - random_state (int): Random seed for reproducibility.
+
+    Returns:
+    - pd.DataFrame: Filtered and annotated DataFrame with 'fold' column added.
+    """
+
+    # Load and filter
+    df = pd.read_csv(annotation_csv_path)
+    df = df[df['exported'] == 1].drop(columns=['exported']).reset_index(drop=True)
+
+    # Ensure 'recurrence' exists
+    if 'recurrence' not in df.columns:
+        raise ValueError("The CSV must contain a 'recurrence' column.")
+
+    # Prepare StratifiedKFold
+    skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=random_state)
+    
+    # Initialize fold column
+    df['fold'] = -1
+
+    # Assign fold numbers (1-based)
+    for fold_number, (_, val_idx) in enumerate(skf.split(df, df['recurrence']), start=1):
+        df.loc[val_idx, 'fold'] = fold_number
+
+    df["training"] = df["fold"].apply(lambda x: 1 if (x == 1 or x == 2) else 0)
+
+    # Save the DataFrame with folds if path provided
+    if output_csv_path:
+        df.to_csv(output_csv_path, index=False)
+
+    return df
+
+
+if __name__ == "__main__":
+    # Example usage
+    #main_csv = "/media/guest/DataStorage/WaveMap/WaveMapEnsiteAnnotations/wave_map_ids_complete.csv"
+    #mapping_csv = "/media/guest/DataStorage/WaveMap/WaveMapEnsiteAnnotations/follow_up_filtered.csv"
+    #output_csv = "/media/guest/DataStorage/WaveMap/WaveMapEnsiteAnnotations/annotations_merged.csv"
+
+    #completed_df = add_elapsed_days(main_csv, mapping_csv)#, output_csv)
+    #print(completed_df.head())
+    #print(completed_df["EnSiteID"].value_counts())
+    #export_csv = "/media/guest/DataStorage/WaveMap/WaveMapEnsiteAnnotations/hdf_dataset_overview.csv"
+    annotations_export = "/media/guest/DataStorage/WaveMap/WaveMapEnsiteAnnotations/annotations_export.csv"
+    annotations_train = "/media/guest/DataStorage/WaveMap/WaveMapEnsiteAnnotations/annotations_train.csv"
+    #export_df = mark_exported(output_csv, export_csv, annotations_csv)
+    #print(export_df.head())
+    #print(export_df["exported"].value_counts())
+
+    #train_df = assign_stratified_folds(annotations_export, n_splits=3, random_state=5032001, output_csv_path=annotations_train)
+    #print(train_df.head())
+
+    

@@ -19,13 +19,13 @@ import torchtuples as tt
 import pandas as pd
 
 
-ANNOTATION_DIR = "/home/guest/lib/data/WaveMapSampleHDF/event_data.csv"
-DATA_DIR = "/home/guest/lib/data/WaveMapSampleHDF"
+ANNOTATION_DIR = "/media/guest/DataStorage/WaveMap/HDF5/annotations_train.csv"
+DATA_DIR = "/media/guest/DataStorage/WaveMap/HDF5"
 
 #hyperparameters
 KERNEL_SIZE = (1, 5)
 STEM_KERNEL_SIZE = (1, 17)
-BLOCKS = [7, 7, 7, 7]
+BLOCKS = [4, 4, 4, 4]
 FEATURES = [16, 32, 64, 128]
 ACTIVATION = "LReLU"
 DOWNSAMPLING_FACTOR = 2
@@ -52,12 +52,12 @@ def objective(trial):
     attention_nodes = trial.suggest_categorical('attention_nodes', [32, 64, 128])
     dropout = trial.suggest_categorical('dropout', [0.0, 0.25, 0.5])
     cox_regularization = trial.suggest_categorical('cox_regularization', [0.0, 1e-3, 1e-2, 1e-1])
-    learning_rate = trial.suggest_categorical('learning_rate', [1e-5, 1e-4, 1e-3, 1e-2])
+    learning_rate = 0.01 #trial.suggest_categorical('learning_rate', [1e-5, 1e-4, 1e-3, 1e-2])
     weight_decay = trial.suggest_categorical('weight_decay', [1e-5, 1e-4, 1e-3, 1e-2])
 
 
-    batch_size = trial.suggest_categorical("batch_size", [1,2,3])
-    num_epochs =  20 #trial.suggest_categorical("num_epochs", [50,100,200])
+    batch_size = trial.suggest_categorical("batch_size", [4,6,8])
+    num_epochs =  1 #trial.suggest_categorical("num_epochs", [50,100,200])
 
     # Dataset & Dataloader
     train_dataset = HDFDataset(
@@ -103,13 +103,13 @@ def objective(trial):
         "dropout_prob": dropout,
     }
 
-    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_padding)
-    val_dataloader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_validation)
+    train_dataloader = DataLoader(train_dataset, batch_size=4, shuffle=True, collate_fn=collate_padding)
+    val_dataloader = DataLoader(val_dataset, batch_size=50, shuffle=False, collate_fn=collate_validation)
     date = datetime.datetime.now().strftime('%d%m%Y-%H%M%S')
 
 
     # Create a directory for TensorBoard logs
-    log_dir = f"runs/optuna_tryout_{date}/optuna_trial_{trial.number}"
+    log_dir = f"runs/optuna_tryout_24_4_2025/optuna_trial_{trial.number}"
     writer = SummaryWriter(log_dir)
 
     # Model, Loss, Optimizer
@@ -172,7 +172,7 @@ if __name__ == "__main__":
     
     study = optuna.create_study(
         study_name="tuesday_tryout",
-        storage="sqlite:///tuesday_tryout.db",
+        storage="sqlite:///thursday_tryout.db",
         direction="maximize",
         sampler=sampler,
         load_if_exists=True
