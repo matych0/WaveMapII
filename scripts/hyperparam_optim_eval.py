@@ -17,6 +17,7 @@ from pycox.evaluation import EvalSurv
 from torchsurv.metrics.cindex import ConcordanceIndex
 import torchtuples as tt
 import pandas as pd
+from statistics import median
 
 
 ANNOTATION_DIR = "/media/guest/DataStorage/WaveMap/HDF5/annotations_train.csv"
@@ -30,18 +31,35 @@ FEATURES = [16, 32, 64, 128]
 ACTIVATION = "LReLU"
 DOWNSAMPLING_FACTOR = 2
 NORMALIZATION = "BatchN2D"
+FILTER_UTILIZED = True
+SEGMENT_MS = 100
 
 
 def get_predictions(loader, model):
-    all_risks, all_durations, all_events = [], [], []
+    all_risks = []
+    all_durations = []
+    all_events = []
+
+    model.eval()
     with torch.no_grad():
         for batch in loader:
             durations, events, traces, traces_masks = batch
-            risks, attentions = model(traces, traces_masks)
-            all_risks.append(risks.squeeze().cpu().numpy())
-            all_durations.append(durations)  # Adjust based on how durations/events are stored
-            all_events.append(events)        # Adjust accordingly
-    return torch.tensor(np.array(all_risks)), torch.tensor(np.array(all_durations), dtype=torch.float), torch.tensor(np.array(all_events), dtype=torch.bool)
+
+            durations = torch.tensor(durations, dtype=torch.float32)
+            events = torch.tensor(events, dtype=torch.bool)
+
+            risks, _ = model(traces, traces_masks)
+
+            all_risks.append(risks.view(-1))        # Instead of .squeeze()
+            all_durations.append(durations.view(-1))
+            all_events.append(events.view(-1))
+
+    risks_tensor = torch.cat(all_risks).cpu()
+    durations_tensor = torch.cat(all_durations).cpu()
+    events_tensor = torch.cat(all_events).cpu()
+
+    return risks_tensor, durations_tensor, events_tensor
+
 
 
 def objective(trial):
@@ -52,12 +70,10 @@ def objective(trial):
     attention_nodes = trial.suggest_categorical('attention_nodes', [32, 64, 128])
     dropout = trial.suggest_categorical('dropout', [0.0, 0.25, 0.5])
     cox_regularization = trial.suggest_categorical('cox_regularization', [0.0, 1e-3, 1e-2, 1e-1])
-    learning_rate = 0.01 #trial.suggest_categorical('learning_rate', [1e-5, 1e-4, 1e-3, 1e-2])
+    learning_rate = trial.suggest_categorical('learning_rate', [1e-4, 1e-3, 5e-3, 1e-2, 5e-2]) #1e-5,
     weight_decay = trial.suggest_categorical('weight_decay', [1e-5, 1e-4, 1e-3, 1e-2])
-
-
-    batch_size = trial.suggest_categorical("batch_size", [4,6,8])
-    num_epochs =  1 #trial.suggest_categorical("num_epochs", [50,100,200])
+    batch_size = trial.suggest_categorical("batch_size", [2,4,8])
+    num_epochs =  trial.suggest_int("num_epochs", 50, 200)
 
     # Dataset & Dataloader
     train_dataset = HDFDataset(
@@ -67,7 +83,8 @@ def objective(trial):
         transform=None,
         startswith="LA",
         readjustonce=True,
-        segment_ms=100
+        segment_ms=SEGMENT_MS,
+        filter_utilized=FILTER_UTILIZED,
     )
 
     val_dataset = ValidationDataset(
@@ -76,7 +93,8 @@ def objective(trial):
         transform=None,
         startswith="LA",
         readjustonce=True,
-        segment_ms=100
+        segment_ms=SEGMENT_MS,
+        filter_utilized=FILTER_UTILIZED,
     )
 
     # Define parameters for LocalActivationResNet
@@ -103,13 +121,13 @@ def objective(trial):
         "dropout_prob": dropout,
     }
 
-    train_dataloader = DataLoader(train_dataset, batch_size=4, shuffle=True, collate_fn=collate_padding)
-    val_dataloader = DataLoader(val_dataset, batch_size=50, shuffle=False, collate_fn=collate_validation)
+    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_padding)
+    val_dataloader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_validation)
     date = datetime.datetime.now().strftime('%d%m%Y-%H%M%S')
 
 
     # Create a directory for TensorBoard logs
-    log_dir = f"runs/optuna_tryout_24_4_2025/optuna_trial_{trial.number}"
+    log_dir = f"runs/optuna_hyperparam_optim_demo/optuna_trial_{trial.number}"
     writer = SummaryWriter(log_dir)
 
     # Model, Loss, Optimizer
@@ -118,16 +136,18 @@ def objective(trial):
     cindex = ConcordanceIndex()
     optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=num_epochs, eta_min=0.0)
-    
-    model.train()
 
+    val_concordances = []
+    
+    # Training loop
+    model.train()
     for epoch in range(num_epochs):
         total_train_loss = 0.0
         model.train()
         for case, control, case_mask, contrl_mask in train_dataloader:
             g_case, a_case = model(case, case_mask)
             g_control, a_control = model(control, contrl_mask)
-            loss = loss_fn(g_case, g_control, shrink=0)
+            loss = loss_fn(g_case, g_control, shrink=cox_regularization)
 
             optimizer.zero_grad()
             loss.backward()
@@ -145,9 +165,13 @@ def objective(trial):
         model.eval()
         val_preds , val_durations, val_events = get_predictions(val_dataloader, model)
         concordance_val = cindex(estimate=val_preds.view(-1), event=val_events.view(-1), time=val_durations.view(-1))
+        val_concordances.append(concordance_val)
+        print(f"Epoch {epoch+1}/{num_epochs}, Validation C-index: {concordance_val:.4f}")
         writer.add_scalar("C-index evaluation", concordance_val, epoch)
 
         scheduler.step()
+
+    median_concordance = median(val_concordances[-10:])
 
     # Log best values (e.g., final validation cindex and training loss)
     writer.add_hparams(
@@ -158,12 +182,13 @@ def objective(trial):
          "learning_rate": learning_rate,
          "weight_decay": weight_decay,
          "batch_size": batch_size},
-        {"hparam/concordance_val": concordance_val, 
+        {"hparam/concordance_val": median_concordance, 
          "hparam/loss": avg_train_loss}
     )
 
     writer.close()
-    return concordance_val  # Maximize concordance → minimize negative
+
+    return median_concordance  # Maximize concordance → minimize negative
 
 
 if __name__ == "__main__":
@@ -171,14 +196,14 @@ if __name__ == "__main__":
     sampler = optuna.samplers.TPESampler(multivariate=True, seed=42)# n_startup_trials=10, )
     
     study = optuna.create_study(
-        study_name="tuesday_tryout",
-        storage="sqlite:///thursday_tryout.db",
+        study_name="hyperparam_optim_demo",
+        storage="sqlite:///hyperparam_optim_demo.db",
         direction="maximize",
         sampler=sampler,
         load_if_exists=True
     )
 
-    study.optimize(objective, n_trials=3)
+    study.optimize(objective, n_trials=50)
     print("Best hyperparameters:", study.best_params)
     optuna.visualization.plot_optimization_history(study)
     optuna.visualization.plot_param_importances(study)

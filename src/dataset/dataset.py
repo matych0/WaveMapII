@@ -94,16 +94,20 @@ def segmentation(segment_ms, traces, fs):
     return traces[:, start:end] 
 
 
-def collect_filepaths_and_maps(data, data_dir, startswith, readjustonce, segment_ms):
+def collect_filepaths_and_maps(data, data_dir, startswith, readjustonce, segment_ms, filter_utilized):
     filepaths, maps, = list(), list()
     for study_id in data["eid"].values:
         file_fullpath = glob.glob(os.path.join(data_dir, study_id, f"{startswith}*"), recursive=False)[0]
-        #file_fullpath = os.path.join(dir_name, os.path.basename(dir_name + ".hdf"))
+        #file_fullpath = os.path.join(file_fullpath, os.path.basename(file_fullpath + ".hdf"))
         filepaths.append(file_fullpath)
         if readjustonce:
-            traces, fs, metadata = read_hdf(file_fullpath, return_fs=True, metadata_keys=["rov LAT", "end time"])
+            traces, fs, metadata = read_hdf(file_fullpath, return_fs=True, metadata_keys=["rov LAT", "end time", "utilized"])
+            utilized, t_amp, t_last = metadata["utilized"], metadata["rov LAT"], metadata["end time"]
+            if filter_utilized:
+                traces = traces[utilized, :]
+                t_amp = t_amp[utilized]
+                t_last = t_last[utilized]
             if segment_ms:
-                t_amp, t_last = metadata["rov LAT"], metadata["end time"]
                 indices = compute_amplitude_indices(t_amp, t_last, fs, traces.shape[1])
                 traces = segment_signals(traces, indices, segment_ms, fs)
                 #traces = segmentation(segment_ms, traces, fs)
@@ -113,6 +117,7 @@ def collect_filepaths_and_maps(data, data_dir, startswith, readjustonce, segment
         return maps
     else:
         return filepaths
+
 
 class HDFDataset(Dataset):
     def __init__(
@@ -124,7 +129,8 @@ class HDFDataset(Dataset):
             transform = None,            
 			startswith: str = "",
             readjustonce: bool = True,
-            segment_ms: int = None,            
+            segment_ms: int = None,
+            filter_utilized: bool = False,         
             ):
         
         self.data_dir = data_dir
@@ -143,9 +149,10 @@ class HDFDataset(Dataset):
         self.readjustonce = readjustonce
         self.num_traces = num_traces
         self.segment_ms = segment_ms
+        self.filter_utilized = filter_utilized
                 
-        self.control_maps = collect_filepaths_and_maps(self.annotations, self.data_dir, startswith, readjustonce, segment_ms)
-        self.case_maps = collect_filepaths_and_maps(self.reccurence, self.data_dir, startswith, readjustonce, segment_ms)
+        self.control_maps = collect_filepaths_and_maps(self.annotations, self.data_dir, startswith, readjustonce, segment_ms, filter_utilized)
+        self.case_maps = collect_filepaths_and_maps(self.reccurence, self.data_dir, startswith, readjustonce, segment_ms, filter_utilized)
                     
 
     def __len__(self):
@@ -163,17 +170,24 @@ class HDFDataset(Dataset):
             case = self.case_maps[idx]
             control = self.control_maps[control_idx]
         else:
-            case, case_fs, case_metadata = read_hdf(self.case_maps[idx], return_fs=True, metadata_keys=["rov LAT", "end time"])
-            control, control_fs, control_metadata = read_hdf(self.control_maps[control_idx], return_fs=True, metadata_keys=["rov LAT", "end time"])
+            case, case_fs, case_metadata = read_hdf(self.case_maps[idx], return_fs=True, metadata_keys=["rov LAT", "end time", "utilized"])
+            control, control_fs, control_metadata = read_hdf(self.control_maps[control_idx], return_fs=True, metadata_keys=["rov LAT", "end time", "utilized"])
+            utilized_case, t_amp_case, t_last_case = case_metadata["utilized"], case_metadata["rov LAT"], case_metadata["end time"]
+            utilized_control, t_amp_control, t_last_control = control_metadata["utilized"], control_metadata["rov LAT"], control_metadata["end time"]
+            
+            if self.filter_utilized:
+                case = case[utilized_case, :]
+                control = control[utilized_control, :]
+                t_amp_case = t_amp_case[utilized_case]
+                t_last_case = t_last_case[utilized_case]
+                t_amp_control = t_amp_control[utilized_control]
+                t_last_control = t_last_control[utilized_control]
+
             if self.segment_ms:
-                t_amp_case, t_last_case = case_metadata["rov LAT"], case_metadata["end time"]
-                t_amp_control, t_last_control = control_metadata["rov LAT"], control_metadata["end time"]
                 case_indices = compute_amplitude_indices(t_amp_case, t_last_case, case_fs, case.shape[1])
                 control_indices = compute_amplitude_indices(t_amp_control, t_last_control, control_fs, control.shape[1])
                 case = segment_signals(case, case_indices, self.segment_ms, case_fs)
                 control = segment_signals(control, control_indices, self.segment_ms, control_fs)   
-        
-
         
         if self.num_traces:
             np.random.shuffle(case)
@@ -199,7 +213,8 @@ class ValidationDataset(Dataset):
             transform = None,            
             startswith: str = "",
             readjustonce: bool = True,
-            segment_ms: int = None,            
+            segment_ms: int = None,
+            filter_utilized: bool = False,            
             ):
         
         self.data_dir = data_dir
@@ -207,15 +222,13 @@ class ValidationDataset(Dataset):
         self.annotations = pd.read_csv(annotations_file)
         # get training/validation studies only
         self.annotations = self.annotations[self.annotations["training"] == False]
-        # sort by days to event
-        #self.annotations = self.annotations.sort_values(by='days_to_event')
         self.annotations.reset_index(drop=True, inplace=True)
-        #self.time_array = self.annotations['days_to_event']
         
         self.readjustonce = readjustonce
         self.segment_ms = segment_ms
+        self.filter_utilized = filter_utilized
         
-        self.maps = collect_filepaths_and_maps(self.annotations, self.data_dir, startswith, readjustonce, segment_ms)
+        self.maps = collect_filepaths_and_maps(self.annotations, self.data_dir, startswith, readjustonce, segment_ms, filter_utilized)
 
     def __len__(self):
         return len(self.annotations)
@@ -228,9 +241,13 @@ class ValidationDataset(Dataset):
             traces = self.maps[idx]
                 
         else:
-            traces, fs, metadata = read_hdf(self.maps[idx], return_fs=True, metadata_keys=["rov LAT", "end time"])
+            traces, fs, metadata = read_hdf(self.maps[idx], return_fs=True, metadata_keys=["rov LAT", "end time", "utilized"])
+            utilized, t_amp, t_last = metadata["utilized"], metadata["rov LAT"], metadata["end time"]
+            if self.filter_utilized:
+                traces = traces[utilized, :]
+                t_amp = t_amp[utilized]
+                t_last = t_last[utilized]
             if self.segment_ms:
-                t_amp, t_last = metadata["rov LAT"], metadata["end time"]
                 case_indices = compute_amplitude_indices(t_amp, t_last, fs, traces.shape[1])
                 traces = segment_signals(traces, case_indices, self.segment_ms, fs)
                 
@@ -239,57 +256,49 @@ class ValidationDataset(Dataset):
             
         traces = torch.from_numpy(traces)
 
-        validation_data = {
-            "traces": traces,
-            "duration": duration,
-            "event": event
-        }
         return duration, event, traces
 
 
 if __name__ == "__main__":
     from collate import collate_validation
+    from collate import collate_padding
 
-    """ annotation_filepath = "C:/Users/matych/Desktop/SampleDataset/event_data.csv"
-    dataset_folderpath = 'C:/Users/matych/Desktop/SampleDataset' """
-    
-    # annotation_filepath = "C:/Users/matych/Research/SampleDataset/event_data.csv"
-    # dataset_folderpath = "C:/Users/matych/Research/SampleDataset"
+    annotation_filepath = "/media/guest/DataStorage/WaveMap/HDF5/annotations_train.csv"
+    dataset_folderpath = "/media/guest/DataStorage/WaveMap/HDF5"
 
-    annotation_filepath = "/home/guest/lib/data/WaveMapSampleHDF/event_data.csv"
-    dataset_folderpath = "/home/guest/lib/data/WaveMapSampleHDF"
-
-    """ training_data = HDFDataset(
+    training_data = HDFDataset(
         annotations_file=annotation_filepath,
         data_dir=dataset_folderpath,
         train=True,
         transform=None,            
         startswith="LA",
-        readjustonce=True, 
+        readjustonce=False, 
         num_traces=None,
-        segment_ms=101,           
+        segment_ms=100, 
+        filter_utilized=True,          
     )
     
-    train_dataloader = DataLoader(training_data, batch_size=1, shuffle=True)
+    train_dataloader = DataLoader(training_data, batch_size=5, shuffle=True, collate_fn=collate_padding)
     
     
     # for i in range(20):
-    case, control = next(iter(train_dataloader)) 
+    case, control, case_mask, control_mask = next(iter(train_dataloader)) 
     
     print(f"Case shape: {case.shape}")
     
-    print(f"Control shape: {control.shape}") """
+    print(f"Control shape: {control.shape}")
 
     validation_data = ValidationDataset(
         annotations_file=annotation_filepath,
         data_dir=dataset_folderpath,
         transform=None,            
         startswith="LA",
-        readjustonce=True, 
-        segment_ms=100,           
+        readjustonce=False, 
+        segment_ms=100,
+        filter_utilized=True,           
     )
 
-    validation_dataloader = DataLoader(validation_data, batch_size=2, shuffle=False, collate_fn=collate_validation)
+    validation_dataloader = DataLoader(validation_data, batch_size=8, shuffle=False, collate_fn=collate_validation)
 
     duration, event, traces, traces_masks = next(iter(validation_dataloader))
     print(f"Durations: {duration}")
