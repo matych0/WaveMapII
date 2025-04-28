@@ -7,6 +7,7 @@ from scipy.signal import firwin, filtfilt, butter
 import json
 from matplotlib import pyplot as plt
 from scipy.signal import resample
+from scipy.stats import loguniform
 import torch
 
 
@@ -102,252 +103,9 @@ class Normalize(BaseTransform):
         return x
 
 
-class ResampleSignals(BaseTransform):
-    def __init__(
-            self,
-            input_sampling: int,
-            output_sampling: int,
-            use_on: str,
-            **kwargs
-    ):
-        super().__init__(use_on)
-        self.input_sampling = int(input_sampling)
-        self.output_sampling = int(output_sampling)
-
-    def __call__(self, x, y, **kwargs):
-        return super().__call__(x, y, **kwargs)
-
-    def transform_x(self, x, **kwargs):
-        return signal.resample_poly(
-            x,
-            up=1,
-            down=self.input_sampling // self.output_sampling,
-            axis=1,
-            window='nuttall',
-            padtype='constant',
-            cval=None,
-        )
-
-
-class ResampleTargets(BaseTransform):
-    def __init__(
-            self,
-            input_sampling: int,
-            output_sampling: int,
-            use_on: str,
-            **kwargs
-    ):
-        super().__init__(use_on)
-        self.input_sampling = int(input_sampling)
-        self.output_sampling = int(output_sampling)
-
-    def __call__(self, x, y, **kwargs):
-        if self.input_sampling == self.output_sampling:
-            return x, y
-        return super().__call__(x, y, **kwargs)
-
-    def transform_y(self, y, **kwargs):
-        if y is None:
-            return y
-
-        factor = self.output_sampling / self.input_sampling
-        y_t = []
-        for mark, intervals in y:
-            intervals = [[int(l * factor), int(r * factor)] for l, r in intervals]
-            y_t.append((mark, intervals))
-
-        return y_t
-
-
-class ExtendTargets(BaseTransform):
-    def __init__(self, width: int, use_on: str, **kwargs):
-        super().__init__(use_on)
-        self.width = int(width)
-
-    def __call__(self, x, y, **kwargs):
-        return super().__call__(x, y, **kwargs)
-
-    def transform_y(self, y, **kwargs):
-        y_t = []
-        for mark, intervals in y:
-            temp = []
-            for l, r in intervals:
-                complement = self.width - (r - l)
-                l -= complement if complement > 0 else 0
-                l = 0 if l < 0 else l
-                temp.append([l, r])
-            y_t.append((mark, temp))
-
-        return y_t
-
-
-class PrepareTargets:
-    def __init__(
-        self,
-        cropped_size: int = 1250,
-        undersampling_factor: int = 4,
-        window_size: int = 17,
-        stride: int = 8,
-        limit: float = 0.5,
-        tolerance: int = 50,
-        **kwargs,
-    ):
-
-        self.cropped_size = cropped_size
-        self.factor = undersampling_factor
-        self.window_size = window_size
-        self.stride = stride
-        self.limit = limit
-        self.tolerance = tolerance
-
-        # Right index of each ROI
-        self.ROI_max = list(range(self.window_size, self.cropped_size + self.window_size, self.stride))
-        # Left index of each ROI
-        self.ROI_min = [item - self.window_size for item in self.ROI_max]
-
-    def transform(self, y, **kwargs):
-        batched_targets = []        
-        downsample = kwargs.pop('downsample', False)
-
-        # reduce and subsample positions
-        for target in y:
-            t1 = []
-            for l_mark, r_mark in target:
-                if downsample:
-                    r_mark = (1 / self.factor) * r_mark
-                    l_mark = (1 / self.factor) * l_mark
-                center = (r_mark + l_mark) / 2
-                t1.append([l_mark, r_mark, center])
-                
-            batched_targets.append(t1)
-
-        return batched_targets 
-
-    def to_relative(self, y, **kwargs):                      
-
-        ROI_num = len(self.ROI_max)
-
-        one_hot_classes = np.zeros((len(y), 1, ROI_num))
-        prob_classes = np.zeros((len(y), 1, ROI_num))
-        norm_positions = 0.0 * np.ones((len(y), 1, ROI_num))
-        norm_box_intervals = np.zeros((len(y), 2, ROI_num))
-                
-        for j, (roi_left, roi_right) in enumerate(zip(self.ROI_min, self.ROI_max)):            
-            for i, target in enumerate(y):
-                for mark_left, mark_right, center in target:
-                    # expand to match P wave duration
-                    # !!!!! only for normal P wave                    
-                    expansion = (self.tolerance - (mark_right - mark_left))
-                    mark_left -= expansion - 10
-                    mark_right += 10
-                    
-                    if mark_left >= roi_left and mark_left < roi_right:
-                        one_hot_classes[i, 0, j] = 1.0
-                        norm_positions[i, 0, j] = (center - roi_left ) / (roi_right - roi_left)
-
-                    if mark_right >= roi_left and mark_right < roi_right:
-                        one_hot_classes[i, 0, j] = 1.0
-                        norm_positions[i, 0, j] = (center - roi_left ) / (roi_right - roi_left)
-
-                    # if center >= roi_left and center < roi_right:
-                    #     intersection = max(0, min(roi_right, center+7) - max(roi_left, center-7))
-                    #     pok[i, 0, j] = intersection / (roi_right - roi_left)                        
-
-                    if mark_left > roi_right:
-                        break
-
-        return one_hot_classes, prob_classes, norm_positions
-
-    def to_absolute(self, box_positions, mask, **kwargs):        
-        # one_hot_classes = one_hot_classes >= self.limit
-        #TODO: max-poolnout po sobe jdouci hodnoty, nechat jen ty po soobe jdouci s nejvyssi pravdepodonosti
-        # vyskytu P vlny.
-        upsample = kwargs.pop('upsample', False)
-
-        if mask is not None:
-            box_positions = box_positions * mask
-        
-        batch_n, class_n, _ = box_positions.shape
-        roi_min = np.tile(np.array(self.ROI_min), (batch_n, class_n, 1))
-        roi_max = np.tile(np.array(self.ROI_max), (batch_n, class_n, 1))
-
-        box_positions = roi_min + ((box_positions * roi_max) - roi_min * (1 - box_positions))
-        
-        if upsample:
-            box_positions = box_positions * self.factor
-
-        return box_positions
-
-
-class OneHotEncoding:
-    """Returns one hot encoded labels"""
-    def __init__(self, cropped_size: int, factor: float):
-        self.cropped_size = cropped_size
-        self.factor = factor
-        self.duration = 25
-
-    def __call__(self, targets, **kwargs):
-        expand_targets = kwargs.pop('expand_targets', False)
-        cropped_size = kwargs.pop('cropped_size', None)
-
-        if self.cropped_size is None:
-            y_t = np.zeros([len(targets), cropped_size])
-        else:
-            y_t = np.zeros([len(targets), self.cropped_size])
-
-        for i, intervals in enumerate(targets):
-            for lower_mark, upper_mark in intervals:
-                lower_mark = lower_mark // self.factor
-                upper_mark = -(upper_mark // -self.factor)
-
-                if expand_targets:
-                    diff = upper_mark - lower_mark
-                    if diff < self.duration:
-                        lower_mark = lower_mark - (self.duration - diff)
-                        if lower_mark < 0:
-                            lower_mark = 0
-
-                y_t[i, lower_mark:upper_mark] = 1.0
-
-        return y_t
-
-
-class HardClip(BaseTransform):
-    """Returns scaled and clipped data between range <-clipping_threshold:clipping_threshold>"""
-    def __init__(self, threshold: float, use_on='sample', **kwargs):
-        super().__init__(use_on)
-        self.threshold = threshold
-        self.generator = False
-
-    def __call__(self, x, y, **kwargs):
-        return super().__call__(x, y)
-
-    def transform_x(self, x, **kwargs):
-        x[x > self.threshold] = self.threshold
-        x[x < -self.threshold] = -self.threshold
-
-        return x
-
-
 # --------------------- Classes for data augmentation ----------------------
 # --------------------------------------------------------------------------
 
-class RandomZeroing(BaseTransform):
-    """ Class randomly zeros signals """
-
-    def __init__(self, probability: float, shuffle: bool = True, random_seed: int = None, **kwargs):
-        super().__init__(shuffle=shuffle, random_seed=random_seed)
-
-        self.probability = probability
-
-    def __call__(self, x, **kwargs):
-        return super().__call__(x)
-
-    def transform(self, x, **kwargs):
-        num_signals = x.shape[0]
-        num_transformed = int(self.probability * num_signals)  # Determine how many signals to zero
-        x[:num_transformed, :] = 0.0  # Apply zeroing only to the first 'num_zeroed' signals
-        return x
 
 class RandomPolarity(BaseTransform):
     """
@@ -433,140 +191,6 @@ class RandomGaussian(BaseTransform):
         return x
 
 
-class RandomArtifact(BaseTransform):
-    """
-        Class randomly adds stimulation artifact
-    """
-    def __init__(self, probability: float, use_on: str, **kwargs):
-        super().__init__(use_on)
-        self.probability = probability
-
-    def __call__(self, x, y, **kwargs):
-        return super().__call__(x, y)
-
-    def transform_x(self, x, **kwargs):
-        dice = self.rng.uniform(0, 1)
-        if dice < self.probability:
-            h, w = x.shape
-            # cycle_length 200-2000 ms
-            cl = self.rng.randint(400, 4000)
-
-            # peak plato 2-10 ms
-            plato_t = self.rng.randint(4, 20)
-            # decay phase 5-30 ms
-            decay_t, decay_e = self.rng.randint(10, 60), self.rng.randint(-10, -2)
-            # generate shape
-            shape = np.concatenate(
-                (
-                    np.array([0, 0, 0.17, 1]),
-                    np.ones(plato_t),
-                    np.exp(np.linspace(0, decay_e, decay_t)),
-                    np.zeros(2),
-                ),
-                axis=0,
-            )
-            shape = np.tile(shape, reps=(h, 1))
-            # generate amplitudes
-            multipliers = np.random.uniform(low=-500, high=5000, size=(h, 1))
-            shape = shape * multipliers
-            shape_w = shape.shape[-1]
-            for i in range(shape_w, w - shape_w, cl):
-                x[:, i:i+shape_w] += shape
-
-        return x
-
-
-class RandomPowerline(BaseTransform):
-    """
-        Class randomly shifts signal within temporal dimension
-    """
-    def __init__(self, probability: float, low_limit: float, high_limit: float, use_on: str, **kwargs):
-        super().__init__(use_on)
-        self.probability = probability
-        self.low_limit = low_limit
-        self.high_limit = high_limit
-
-    def __call__(self, x, y, **kwargs):
-        return super().__call__(x, y)
-
-    def transform_x(self, x, **kwargs):
-        phase = self.rng.uniform(0, 1)
-        for i in range(x.shape[0]):
-            dice = self.rng.uniform(0, 1)
-            if dice < self.probability:
-                db = self.rng.uniform(self.low_limit, self.high_limit)
-                # estimate SNR
-                power = np.sqrt(np.mean(x[i, :] ** 2) / (10 ** (db / 10)))
-                # add noise
-                sine = (1.414 * power) * np.sin(2 * np.pi * 50 * np.arange(0, (x.shape[-1] + 1) / 2000, 1 / 2000) + phase)
-                x[i, :] += sine[:x.shape[-1]]
-        return x
-
-
-class RandomCrop(BaseTransform):
-    """
-        Class randomly shifts signal within temporal dimension
-    """
-    def __init__(self, probability: float, limit: float, use_on: str, **kwargs):
-        super().__init__(use_on)
-        assert limit > 0
-
-        self.probability = probability
-        self.limit = limit
-
-    def __call__(self, x, y, **kwargs):
-        dice = self.rng.uniform(0, 1)
-        if dice < self.probability:
-            w = x.shape[-1]
-            lower_bound = self.rng.randint(0, self.limit)
-            upper_bound = w - self.rng.randint(0, self.limit)
-            return super().__call__(x, y, lower_bound=lower_bound, upper_bound=upper_bound)
-        else:
-            return x, y
-
-    def transform_x(self, x, **kwargs):
-        lower_bound = kwargs.pop('lower_bound', 0)
-        upper_bound = kwargs.pop('upper_bound', x.shape[-1])
-        return x[:, lower_bound:upper_bound]
-
-    def transform_y(self, y,  **kwargs):
-        if y is None:
-            return y
-
-        lower_bound = kwargs.pop('lower_bound')
-        upper_bound = kwargs.pop('upper_bound')
-
-        y_t = list()
-        for mark_tag, mark_vals in y:
-            temp = list()
-            for lower_mark, upper_mark in mark_vals:
-                lower_mark -= lower_bound
-                upper_mark -= lower_bound
-
-                # skip cropped marks
-                if upper_mark < 0:
-                    continue
-
-                if lower_mark >= upper_bound:
-                    continue
-
-                # check if interval has dropped below lower bound
-                if lower_mark < 0:
-                    lower_mark = 0
-
-                # check if interval is above upper bound
-                if upper_mark >= upper_bound:
-                    upper_mark = upper_bound - 1
-
-                temp.append([lower_mark, upper_mark])
-
-            y_t.append(
-                (mark_tag, sorted(temp))
-            )
-
-        return y_t
-
-
 class RandomAmplifier(BaseTransform):
     """
     Class randomly amplifies signal
@@ -599,7 +223,7 @@ class RandomStretch(BaseTransform):
     Class randomly stretches temporal dimension of signal
     """
     def __init__(self, probability: float, limit: float, shuffle: bool = True, random_seed: int = None, **kwargs):
-        super().__init__(ushuffle=shuffle, random_seed=random_seed)
+        super().__init__(shuffle=shuffle, random_seed=random_seed)
 
         self.random_seed = random_seed
         self.probability = probability
@@ -640,7 +264,7 @@ class RandomTemporalScale(BaseTransform):
     Class randomly stretches temporal dimension of signal
     """
     def __init__(self, probability: float, limit: float, shuffle: bool = True, random_seed: int = None, **kwargs):
-        super().__init__(ushuffle=shuffle, random_seed=random_seed)
+        super().__init__(shuffle=shuffle, random_seed=random_seed)
 
         self.random_seed = random_seed
         self.probability = probability
@@ -680,81 +304,26 @@ class RandomTemporalScale(BaseTransform):
         return x_resampled
 
 
-
-class RemoveBordelineMarks:
-    def __init__(self, min_width, **kwargs):
-        self.min_width = min_width
-
-    def __call__(self, x, y, **kwargs):
-        if y is None:
-            return x, y
-
-        w = x.shape[-1]
-        y_t = list()
-        for mark_tag, mark_vals in y:
-            temp = list()
-            for lower_mark, upper_mark in mark_vals:
-                # skip cropped marks
-                if lower_mark < self.min_width:
-                    continue
-
-                if upper_mark >= w - self.min_width:
-                    continue
-
-                if upper_mark - lower_mark < self.min_width:
-                    continue
-                temp.append([lower_mark, upper_mark])
-
-            y_t.append(
-                (mark_tag, sorted(temp))
-            )
-        return x, y_t
-
-
-class CheckMarksValidity:
-    def __init__(self, **kwargs):
-        pass
-
-    def __call__(self, x, y, **kwargs):
-        if y is None:
-            return x, y
-
-        w = x.shape[-1]
-        for mark_tag, mark_vals in y:
-            for lower_mark, upper_mark in mark_vals:
-                if lower_mark < 0 or upper_mark < 0:
-                    raise ValueError(f'Invalid mark value. Expected mark > 0, got {lower_mark} and {upper_mark}.')
-                if lower_mark >= w or upper_mark >= w:
-                    raise ValueError(f'Invalid mark value. Expected mark < {w}, got {lower_mark} and {upper_mark}.')
-                if lower_mark > upper_mark:
-                    raise ValueError(f'Invalid mark value. Expected mark[0] to be less than mark[1]')
-
-        return x, y
-
-
-class RandomChannelSwitch(BaseTransform):
-    """
-    Class randomly switches two neighboring channels
-    """
-    def __init__(self, probability: float, use_on: str, **kwargs):
+#----------------------Others------------------------------------------------
+#----------------------------------------------------------------------------
+    
+class HardClip(BaseTransform):
+    """Returns scaled and clipped data between range <-clipping_threshold:clipping_threshold>"""
+    def __init__(self, threshold: float, use_on='sample', **kwargs):
         super().__init__(use_on)
-        self.probability = probability
+        self.threshold = threshold
+        self.generator = False
 
     def __call__(self, x, y, **kwargs):
-        dice = self.rng.uniform(0, 1)
-        if dice < self.probability:
-            return super().__call__(x, y, **kwargs)
-        else:
-            return x, y
+        return super().__call__(x, y)
 
     def transform_x(self, x, **kwargs):
-        idx = list(range(0, x.shape[0]))
-        ch1 = self.rng.randint(0, x.shape[0]-1)
-        ch2 = idx[(ch1 - len(idx)) + 1]
-        idx[ch1], idx[ch2] = idx[ch2], idx[ch1]
-        return x[idx, :]
+        x[x > self.threshold] = self.threshold
+        x[x < -self.threshold] = -self.threshold
 
+        return x
 
+    
 class HighPassFilter(BaseTransform):
     def __init__(self, critical_f: float, sampling_f: int, order: int, use_on: str, **kwargs):
         super().__init__(use_on)
@@ -797,25 +366,68 @@ class LowPassFilter(BaseTransform):
         for i, row in enumerate(x):
             y_t[i, :] = signal.fftconvolve(row, self.filter, mode="same")
         return y_t
-
-
-#----------------------Classes for WaveMap augmentation----------------------
-# ---------------------------------------------------------------------------
     
-class ZScoreNormalize:
-    def __call__(self, x):
-        """
-        Args:
-            x (Tensor): Shape [channels, num_signals, num_samples]
-        
-        Returns:
-            Normalized Tensor with mean ~0 and std ~1 per signal
-        """
-        mean = x.mean(dim=-1, keepdim=True)  # Compute mean along num_samples
-        std = x.std(dim=-1, keepdim=True)    # Compute std along num_samples
-        
-        return (x - mean) / (std + 1e-8)  # Normalize, avoid div by zero
     
+class RandomZeroing(BaseTransform):
+    """ Class randomly zeros signals """
+
+    def __init__(self, probability: float, shuffle: bool = True, random_seed: int = None, **kwargs):
+        super().__init__(shuffle=shuffle, random_seed=random_seed)
+
+        self.probability = probability
+
+    def __call__(self, x, **kwargs):
+        return super().__call__(x)
+
+    def transform(self, x, **kwargs):
+        num_signals = x.shape[0]
+        num_transformed = int(self.probability * num_signals)  # Determine how many signals to zero
+        x[:num_transformed, :] = 0.0  # Apply zeroing only to the first 'num_zeroed' signals
+        return x
+    
+
+class RandomArtifact(BaseTransform):
+    """
+        Class randomly adds stimulation artifact
+    """
+    def __init__(self, probability: float, use_on: str, **kwargs):
+        super().__init__(use_on)
+        self.probability = probability
+
+    def __call__(self, x, y, **kwargs):
+        return super().__call__(x, y)
+
+    def transform_x(self, x, **kwargs):
+        dice = self.rng.uniform(0, 1)
+        if dice < self.probability:
+            h, w = x.shape
+            # cycle_length 200-2000 ms
+            cl = self.rng.randint(400, 4000)
+
+            # peak plato 2-10 ms
+            plato_t = self.rng.randint(4, 20)
+            # decay phase 5-30 ms
+            decay_t, decay_e = self.rng.randint(10, 60), self.rng.randint(-10, -2)
+            # generate shape
+            shape = np.concatenate(
+                (
+                    np.array([0, 0, 0.17, 1]),
+                    np.ones(plato_t),
+                    np.exp(np.linspace(0, decay_e, decay_t)),
+                    np.zeros(2),
+                ),
+                axis=0,
+            )
+            shape = np.tile(shape, reps=(h, 1))
+            # generate amplitudes
+            multipliers = np.random.uniform(low=-500, high=5000, size=(h, 1))
+            shape = shape * multipliers
+            shape_w = shape.shape[-1]
+            for i in range(shape_w, w - shape_w, cl):
+                x[:, i:i+shape_w] += shape
+
+        return x
+
 
 #----------------------Plotting--------------------------------------------
 #--------------------------------------------------------------------------
@@ -915,9 +527,9 @@ if __name__ == "__main__":
     # transform = RandomCrop(probability=0.7, use_on="sample", limit=20)
     # transform = RandomAmplifier(probability=1, limit=2, shuffle=True, random_seed=42)
     # transform = RandomStretch(probability=1, limit=2, shuffle=True, random_seed=42)
-    #transform = RandomTemporalScale(probability=1, limit=2, shuffle=True, random_seed=42)
+    transform = RandomTemporalScale(probability=1, limit=2, shuffle=True, random_seed=42)
     #transform = ZScore(mean=1, std = 2)
-    transform = Normalize()
+    # transform = Normalize()
     x_trans = transform(x)
     #x_trans = transform(x_trans)
     
