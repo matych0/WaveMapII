@@ -130,7 +130,9 @@ class HDFDataset(Dataset):
 			startswith: str = "",
             readjustonce: bool = True,
             segment_ms: int = None,
-            filter_utilized: bool = False,         
+            filter_utilized: bool = False, 
+            oversampling_factor: int = None,
+            num_controls: int = 1,        
             ):
         
         self.data_dir = data_dir
@@ -138,13 +140,21 @@ class HDFDataset(Dataset):
         self.annotations = pd.read_csv(annotations_file)
         # get training/validation studies only
         self.annotations = self.annotations[self.annotations["training"] == train]
+        # get reccurence cases only
+        self.reccurence = self.annotations[self.annotations['reccurence'] == 1]
+        self.reccurence.reset_index(drop=True, inplace=True)
+
+        # Recurrence cases oversampling 
+        if oversampling_factor:
+            self.oversampled = pd.concat([self.reccurence] * (oversampling_factor - 1), ignore_index=True)
+            self.annotations = pd.concat([self.annotations, self.oversampled], ignore_index=True)
+
         # sort by days to event
         self.annotations = self.annotations.sort_values(by='days_to_event')
         self.annotations.reset_index(drop=True, inplace=True)
         self.time_array = self.annotations['days_to_event']
-        # get reccurence cases only
-        self.reccurence = self.annotations[self.annotations['reccurence'] == 1]
-        self.reccurence.reset_index(drop=True, inplace=True)
+
+        
         
         self.readjustonce = readjustonce
         self.num_traces = num_traces
@@ -169,6 +179,7 @@ class HDFDataset(Dataset):
         if self.readjustonce:
             case = self.case_maps[idx]
             control = self.control_maps[control_idx]
+
         else:
             case, case_fs, case_metadata = read_hdf(self.case_maps[idx], return_fs=True, metadata_keys=["rov LAT", "end time", "utilized"])
             control, control_fs, control_metadata = read_hdf(self.control_maps[control_idx], return_fs=True, metadata_keys=["rov LAT", "end time", "utilized"])
@@ -275,7 +286,8 @@ if __name__ == "__main__":
         readjustonce=False, 
         num_traces=None,
         segment_ms=100, 
-        filter_utilized=True,          
+        filter_utilized=True,
+        oversampling_factor=4,          
     )
     
     train_dataloader = DataLoader(training_data, batch_size=5, shuffle=True, collate_fn=collate_padding)

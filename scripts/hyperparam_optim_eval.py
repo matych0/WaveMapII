@@ -2,6 +2,7 @@ import optuna
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from transformers import get_cosine_schedule_with_warmup
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from src.dataset.dataset import HDFDataset, ValidationDataset
@@ -26,13 +27,14 @@ DATA_DIR = "/media/guest/DataStorage/WaveMap/HDF5"
 #hyperparameters
 KERNEL_SIZE = (1, 5)
 STEM_KERNEL_SIZE = (1, 17)
-BLOCKS = [4, 4, 4, 4]
+BLOCKS = [3, 4, 6, 3]
 FEATURES = [16, 32, 64, 128]
 ACTIVATION = "LReLU"
 DOWNSAMPLING_FACTOR = 2
 NORMALIZATION = "BatchN2D"
 FILTER_UTILIZED = True
 SEGMENT_MS = 100
+OVERSAMPLING_FACTOR = 4
 
 
 def get_predictions(loader, model):
@@ -66,14 +68,14 @@ def objective(trial):
     """Objective function for Optuna hyperparameter optimization."""
 
     # Hyperparameters to optimize
-    projection_nodes = trial.suggest_categorical('projection_nodes', [64, 128, 256])
-    attention_nodes = trial.suggest_categorical('attention_nodes', [32, 64, 128])
-    dropout = trial.suggest_categorical('dropout', [0.0, 0.25, 0.5])
-    cox_regularization = trial.suggest_categorical('cox_regularization', [0.0, 1e-3, 1e-2, 1e-1])
-    learning_rate = trial.suggest_categorical('learning_rate', [1e-4, 1e-3, 5e-3, 1e-2, 5e-2]) #1e-5,
-    weight_decay = trial.suggest_categorical('weight_decay', [1e-5, 1e-4, 1e-3, 1e-2])
-    batch_size = trial.suggest_categorical("batch_size", [2,4,8])
-    num_epochs =  trial.suggest_int("num_epochs", 50, 200)
+    projection_nodes = 128#trial.suggest_categorical('projection_nodes', [64, 128, 256])
+    attention_nodes = 32 #trial.suggest_categorical('attention_nodes', [32, 64, 128])
+    dropout = 0.0 #trial.suggest_categorical('dropout', [0.0, 0.25, 0.5])
+    cox_regularization = 0.0 #rial.suggest_categorical('cox_regularization', [0.0, 1e-3, 1e-2, 1e-1])
+    learning_rate = 0.001 #trial.suggest_categorical('learning_rate', [1e-4, 1e-3, 5e-3, 1e-2, 5e-2]) #1e-5,
+    weight_decay = 0.001 #trial.suggest_categorical('weight_decay', [1e-5, 1e-4, 1e-3, 1e-2])
+    batch_size = 2 #trial.suggest_categorical("batch_size", [2,4,8])
+    num_epochs =  trial.suggest_int("num_epochs", 50, 400)
 
     # Dataset & Dataloader
     train_dataset = HDFDataset(
@@ -85,6 +87,7 @@ def objective(trial):
         readjustonce=True,
         segment_ms=SEGMENT_MS,
         filter_utilized=FILTER_UTILIZED,
+        oversampling_factor=OVERSAMPLING_FACTOR,
     )
 
     val_dataset = ValidationDataset(
@@ -127,7 +130,7 @@ def objective(trial):
 
 
     # Create a directory for TensorBoard logs
-    log_dir = f"runs/optuna_hyperparam_optim_demo/optuna_trial_{trial.number}"
+    log_dir = f"runs/oversampling_test/optuna_trial_{trial.number}"
     writer = SummaryWriter(log_dir)
 
     # Model, Loss, Optimizer
@@ -135,7 +138,11 @@ def objective(trial):
     loss_fn = CoxLoss()
     cindex = ConcordanceIndex()
     optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=num_epochs, eta_min=0.0)
+    scheduler = get_cosine_schedule_with_warmup(
+        optimizer,
+        num_warmup_steps=num_epochs // 10,
+        num_training_steps=num_epochs, # total number of steps (warmup + cosine decay)
+    )
 
     val_concordances = []
     
@@ -179,9 +186,10 @@ def objective(trial):
          "attention_nodes": attention_nodes,
          "dropout": dropout,
          "cox_regularization": cox_regularization,
-         "learning_rate": learning_rate,
          "weight_decay": weight_decay,
-         "batch_size": batch_size},
+         "batch_size": batch_size,
+         "learning_rate": learning_rate,
+         "num_epochs": num_epochs},
         {"hparam/concordance_val": median_concordance, 
          "hparam/loss": avg_train_loss}
     )
@@ -196,18 +204,18 @@ if __name__ == "__main__":
     sampler = optuna.samplers.TPESampler(multivariate=True, seed=42)# n_startup_trials=10, )
     
     study = optuna.create_study(
-        study_name="hyperparam_optim_demo",
-        storage="sqlite:///hyperparam_optim_demo.db",
+        study_name="oversampling_test",
+        storage="sqlite:///oversampling_test.db",
         direction="maximize",
         sampler=sampler,
         load_if_exists=True
     )
 
-    study.optimize(objective, n_trials=50)
+    study.optimize(objective, n_trials=5)
     print("Best hyperparameters:", study.best_params)
-    optuna.visualization.plot_optimization_history(study)
+    """ optuna.visualization.plot_optimization_history(study)
     optuna.visualization.plot_param_importances(study)
     optuna.visualization.plot_slice(study)
     optuna.visualization.plot_parallel_coordinate(study)
     optuna.visualization.plot_contour(study)
-    optuna.visualization.plot_edf(study)
+    optuna.visualization.plot_edf(study) """

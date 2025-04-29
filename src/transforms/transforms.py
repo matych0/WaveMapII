@@ -9,6 +9,7 @@ from matplotlib import pyplot as plt
 from scipy.signal import resample
 from scipy.stats import loguniform
 import torch
+from torchvision import transforms
 
 
 __all__ = ["Compose", "HardClip", "ZScore", "RandomShift", "RandomStretch", "RandomAmplifier", "RandomLeadSwitch",
@@ -134,7 +135,7 @@ class RandomShift(BaseTransform):
         
         self.probability = probability
         self.shift_range = shift_range
-        self.random_seed = random_seed
+        self.rng = np.random.default_rng(random_seed)
         super().__init__(shuffle=shuffle, random_seed=random_seed)
 
 
@@ -142,13 +143,12 @@ class RandomShift(BaseTransform):
         return super().__call__(x)
 
     def transform(self, x, **kwargs):
-        np.random.seed(self.random_seed)  # Ensure reproducibility if seed is set
 
         num_signals, signal_length = x.shape
         num_transformed = round(self.probability * num_signals)  # Number of signals to shift
 
         # Generate random shift fractions in range [-shift_range, shift_range]
-        shift_fractions = np.random.uniform(-self.shift_range, self.shift_range, size=num_transformed)
+        shift_fractions = self.rng.uniform(-self.shift_range, self.shift_range, size=num_transformed)
 
         # Convert to integer shift values
         shifts = np.round(shift_fractions * signal_length).astype(int)
@@ -167,7 +167,7 @@ class RandomGaussian(BaseTransform):
     def __init__(self, probability: float, low_limit: float, high_limit: float, shuffle: bool = True, random_seed: int = None, **kwargs):
         super().__init__(shuffle=shuffle, random_seed=random_seed)
         self.probability = probability
-        self.random_seed = random_seed
+        self.rng = np.random.default_rng(random_seed)
         self.low_limit = low_limit
         self.high_limit = high_limit
         
@@ -175,19 +175,18 @@ class RandomGaussian(BaseTransform):
     def __call__(self, x, **kwargs):
         return super().__call__(x)
 
-    def transform(self, x, **kwargs):
-        np.random.seed(self.random_seed)  # Ensure reproducibility if seed is set
-
+    def transform(self, x, **kwargs):        
+        
         num_signals, signal_length = x.shape
         num_transformed = round(self.probability * num_signals)  # Number of signals to add noise to
 
-        noise_dbs = np.random.uniform(self.low_limit, self.high_limit, size=num_transformed)
+        noise_dbs = self.rng.uniform(self.low_limit, self.high_limit, size=num_transformed)
 
         for i, db in zip(range(num_transformed), noise_dbs):
             # estimate SNR
             power = np.sqrt(np.mean(x[i, :] ** 2) / (10 ** (db / 10)))
             # add noise
-            x[i] += np.random.normal(loc=0, scale=power, size=signal_length)
+            x[i] += self.rng.normal(loc=0, scale=power, size=signal_length)
         return x
 
 
@@ -198,7 +197,7 @@ class RandomAmplifier(BaseTransform):
     def __init__(self, probability: float, limit: float, shuffle: bool = True, random_seed: int = None, **kwargs):
         super().__init__(shuffle=shuffle, random_seed=random_seed)
 
-        self.random_seed = random_seed
+        self.rng = np.random.default_rng(random_seed)
         self.probability = probability
         self.limit = limit
 
@@ -207,16 +206,63 @@ class RandomAmplifier(BaseTransform):
 
 
     def transform(self, x, **kwargs):
-        np.random.seed(self.random_seed)  # Ensure reproducibility if seed is set
 
         num_signals, signal_length = x.shape
         num_transformed = round(self.probability * num_signals)  # Number of signals to amplify
 
-        amplify_factors = np.random.uniform(-self.limit, self.limit, size=num_transformed)
+        amplify_factors = self.rng.uniform(1 - self.limit, 1+ self.limit, size=num_transformed)
         print(amplify_factors)
         x[:num_transformed] *= amplify_factors[:, np.newaxis]
 
         return x
+
+
+class RandomTemporalScale(BaseTransform):
+    """
+    Class randomly stretches temporal dimension of signal
+    """
+    def __init__(self, probability: float, limit: float, shuffle: bool = True, random_seed: int = None, **kwargs):
+        super().__init__(shuffle=shuffle, random_seed=random_seed)
+
+        self.rng = np.random.default_rng(random_seed)
+        self.probability = probability
+        self.limit = limit
+
+    def __call__(self, x, **kwargs):
+        return super().__call__(x, **kwargs)
+
+    def transform(self, x, **kwargs):
+        num_signals, width = x.shape
+        num_transformed = round(self.probability * num_signals)  # Number of signals to amplify
+
+        factors = self.rng.uniform(1 - self.limit,1 + self.limit, size=num_transformed)
+        new_widths = (factors * width).astype(int)
+        print(new_widths)
+
+        x_resampled = np.zeros_like(x)
+
+        for i, new_w in zip(range(num_transformed), new_widths):
+            resampled_signal = resample(x[i], new_w)  # Resample
+
+            # Compute padding or cropping offsets
+            diff = width - new_w
+            if diff < 0:  # Crop equally from both sides
+                start = -diff // 2
+                end = start + width
+                x_resampled[i] = resampled_signal[start:end]
+            else:  # Pad equally on both sides
+                pad_left = diff // 2
+                pad_right = diff - pad_left
+                x_resampled[i, pad_left:-pad_right or None] = resampled_signal
+
+        # Copy the remaining signals unchanged
+        x_resampled[num_transformed:] = x[num_transformed:]
+
+        return x_resampled
+
+
+#----------------------Others------------------------------------------------
+#----------------------------------------------------------------------------
 
 class RandomStretch(BaseTransform):
     """
@@ -258,54 +304,6 @@ class RandomStretch(BaseTransform):
             )
         return x
 
-
-class RandomTemporalScale(BaseTransform):
-    """
-    Class randomly stretches temporal dimension of signal
-    """
-    def __init__(self, probability: float, limit: float, shuffle: bool = True, random_seed: int = None, **kwargs):
-        super().__init__(shuffle=shuffle, random_seed=random_seed)
-
-        self.random_seed = random_seed
-        self.probability = probability
-        self.limit = limit
-
-    def __call__(self, x, **kwargs):
-        return super().__call__(x, **kwargs)
-
-    def transform(self, x, **kwargs):
-        np.random.seed(self.random_seed)  # Ensure reproducibility if seed is set
-        num_signals, width = x.shape
-        num_transformed = round(self.probability * num_signals)  # Number of signals to amplify
-
-        factors = np.random.uniform(1/self.limit, self.limit, size=num_transformed)
-        new_widths = (factors * width).astype(int)
-        print(new_widths)
-
-        x_resampled = np.zeros_like(x)
-
-        for i, new_w in zip(range(num_transformed), new_widths):
-            resampled_signal = resample(x[i], new_w)  # Resample
-
-            # Compute padding or cropping offsets
-            diff = width - new_w
-            if diff < 0:  # Crop equally from both sides
-                start = -diff // 2
-                end = start + width
-                x_resampled[i] = resampled_signal[start:end]
-            else:  # Pad equally on both sides
-                pad_left = diff // 2
-                pad_right = diff - pad_left
-                x_resampled[i, pad_left:-pad_right or None] = resampled_signal
-
-        # Copy the remaining signals unchanged
-        x_resampled[num_transformed:] = x_resampled[num_transformed:]
-
-        return x_resampled
-
-
-#----------------------Others------------------------------------------------
-#----------------------------------------------------------------------------
     
 class HardClip(BaseTransform):
     """Returns scaled and clipped data between range <-clipping_threshold:clipping_threshold>"""
@@ -450,7 +448,7 @@ def create_sinusoidal_tensor(frequency, amplitude, offset, sampling_rate, durati
     return sinusoidal_signal
 
 
-def plot_subplots(data, trans_data, num_subplots, title="Subplots"):
+def plot_subplots(data, trans_data, num_subplots, title="Subplots", fs=2035):
     """
     Plot subplots using Matplotlib.
     
@@ -465,22 +463,24 @@ def plot_subplots(data, trans_data, num_subplots, title="Subplots"):
     data_min = min(data.min(), trans_data.min())
     data_max = max(data.max(), trans_data.max())
     padding = 0.2
+
+    time_ms = np.arange(data.shape[1]) * (1000 / fs)
     
     for i in range(2*num_subplots):
         if i % 2 == 0:
-            ax[i].plot(data[i//2])
+            ax[i].plot(time_ms, data[i//2])
             ax[i].set_ylim(data_min - padding, data_max + padding)
             ax[i].axhline(0, color='red', linestyle='--', linewidth=1)
-            ax[i].set_title(f"Signal {i//2+1}")
-            ax[i].set_xlabel("Samples")
-            ax[i].set_ylabel("Amplitude")
+            #ax[i].set_title(f"Signal {i//2+1}")
+            ax[i].set_xlabel("time [ms]")
+            ax[i].set_ylabel("voltage [mV]")
         else:
-            ax[i].plot(trans_data[i//2])
+            ax[i].plot(time_ms, trans_data[i//2])
             ax[i].set_ylim(data_min - padding, data_max + padding)
             ax[i].axhline(0, color='red', linestyle='--', linewidth=1)
-            ax[i].set_title(f"Transformed Signal {i//2+1}")
-            ax[i].set_xlabel("Samples")
-            ax[i].set_ylabel("Amplitude")
+            #ax[i].set_title(f"Transformed Signal {i//2+1}")
+            ax[i].set_xlabel("time [ms]")
+            ax[i].set_ylabel("voltage [mV]")
 
     
 
@@ -489,51 +489,69 @@ def plot_subplots(data, trans_data, num_subplots, title="Subplots"):
 
 
 if __name__ == "__main__":
-    frequencies = [1, 2, 3, 4, 17]
+    """ frequencies = [1, 2, 3, 4, 17]
     amplitudes = [1.2, 0.8, 1.5, 1.0, 0.7]
     offsets = [0.5, 0.3, 0.7, 0.2, -0.5]
     x = create_sinusoidal_tensor(frequency=frequencies,amplitude=amplitudes,offset=offsets, sampling_rate=200, duration=1, num_signals=len(frequencies))
+ """
 
 
-
-    """ data = annotation_filepath = "/home/guest/lib/data/WaveMapSampleHDF/event_data.csv"
-    dataset_folderpath = "/home/guest/lib/data/WaveMapSampleHDF"
+    ANNOTATION_DIR = "/media/guest/DataStorage/WaveMap/HDF5/annotations_train.csv"
+    DATA_DIR = "/media/guest/DataStorage/WaveMap/HDF5"
     
     from torch.utils.data import DataLoader
     from src.dataset.dataset import HDFDataset
     
     training_data = HDFDataset(
-        annotations_file=annotation_filepath,
-        data_dir=dataset_folderpath,
+        annotations_file=ANNOTATION_DIR,
+        data_dir=DATA_DIR,
         train=True,
         transform=None,            
         startswith="LA",
-        readjustonce=False, 
-        num_traces=5,
-        segment_ms=100
+        readjustonce=True, 
+        num_traces=100,
+        segment_ms=100,
+        filter_utilized=True
     )
 
-    train_dataloader = DataLoader(training_data, batch_size=10, shuffle=True)
 
-    x, y = next(iter(train_dataloader)) """
+    train_dataloader = DataLoader(training_data, batch_size=2, shuffle=True)
+
+    x, y = next(iter(train_dataloader))
+    
+    
+
+    x = np.array(x[0,95:,:])
 
     x_orig = np.copy(x)
-    #transform = RandomZeroing(probability=0.19, shuffle=True, random_seed=42)
-    #transform = RandomPolarity(probability=0.5, shuffle=True, random_seed=42)
-    #transform = RandomShift(probability=0.5, shuffle=True, random_seed=42)
-    #transform = RandomGaussian(probability=0.5, low_limit=10, high_limit=40, shuffle=True, random_seed=42)
-    #transform = RandomArtifact(probability=1, use_on="sample")
-    #transform = RandomPowerline(probability=0.7, use_on="sample", low_limit=5, high_limit=10)
-    # transform = RandomCrop(probability=0.7, use_on="sample", limit=20)
-    # transform = RandomAmplifier(probability=1, limit=2, shuffle=True, random_seed=42)
-    # transform = RandomStretch(probability=1, limit=2, shuffle=True, random_seed=42)
-    transform = RandomTemporalScale(probability=1, limit=2, shuffle=True, random_seed=42)
-    #transform = ZScore(mean=1, std = 2)
-    # transform = Normalize()
-    x_trans = transform(x)
-    #x_trans = transform(x_trans)
-    
-    
-    plot_subplots(x_orig, x_trans, num_subplots=x_orig.shape[0], title="Signal Transform")
-    
 
+    seed = 5032001
+
+    polarity =  RandomPolarity(probability=0.5, shuffle=True, random_seed=seed)
+    temporal_scale = RandomTemporalScale(probability=0.2, limit=0.2, shuffle=True, random_seed=seed)
+    amplifier = RandomAmplifier(probability=0.4, limit=0.5, shuffle=True, random_seed=seed)
+    noise = RandomGaussian(probability=0.2, low_limit=10, high_limit=30, shuffle=True, random_seed=seed)
+    shift = RandomShift(probability=0.8, shuffle=True, random_seed=seed, shift_range=0.3)
+    zscore = ZScore(mean=0.0, std = 0.378)
+    shuffle = BaseTransform(shuffle=True, random_seed=seed)
+
+    transform = transforms.Compose([
+        #zscore,
+        polarity,
+        amplifier,
+        temporal_scale,
+        shift,
+        noise,
+        shuffle,
+    ])
+
+    x_trans = transform(x)
+
+    plot_subplots(x, x_trans, num_subplots=x_orig.shape[0], title="Signal Transform")
+
+    """ x = np.array(x_orig[1,95:,:])
+    x_trans_2 = transform(x)
+
+    plot_subplots(x_orig, x_trans_2, num_subplots=x_orig.shape[0], title="Signal Transform")
+    
+ """
