@@ -132,6 +132,8 @@ class HDFDataset(Dataset):
             segment_ms: int = None,
             filter_utilized: bool = False, 
             oversampling_factor: int = None,
+            random_seed: int = 3052001,
+            cross_val_fold: int = None,
             num_controls: int = 1,        
             ):
         
@@ -139,10 +141,21 @@ class HDFDataset(Dataset):
         self.transform = transform
         self.annotations = pd.read_csv(annotations_file)
         # get training/validation studies only
-        self.annotations = self.annotations[self.annotations["training"] == train]
+        if train == True:
+            if cross_val_fold is None:
+                self.annotations = self.annotations[self.annotations["training"] == True]
+            else:
+                self.annotations = self.annotations[self.annotations["fold"] != cross_val_fold]
+        else:
+            if cross_val_fold is None:
+                self.annotations = self.annotations[self.annotations["training"] == False]
+            else:
+                self.annotations = self.annotations[self.annotations["fold"] == cross_val_fold]
+    
         # get reccurence cases only
         self.reccurence = self.annotations[self.annotations['reccurence'] == 1]
         self.reccurence.reset_index(drop=True, inplace=True)
+        self.np_rng = np.random.default_rng(random_seed) # NumPy random generator
 
         # Recurrence cases oversampling 
         if oversampling_factor:
@@ -171,10 +184,10 @@ class HDFDataset(Dataset):
     def __getitem__(self, idx):
         time = self.reccurence.at[idx, 'days_to_event']
         index = np.searchsorted(self.time_array, time)
-        control_idx = np.random.choice(range(index, self.annotations.shape[0]))
+        control_idx = self.np_rng.choice(range(index, self.annotations.shape[0]))
         
         control_time = self.annotations.at[control_idx, 'days_to_event']
-        print(f"Case time: {time}, Control time: {control_time}")
+        # print(f"Case time: {time}, Control time: {control_time}")
         
         if self.readjustonce:
             case = self.case_maps[idx]
@@ -221,18 +234,30 @@ class ValidationDataset(Dataset):
             self,
             annotations_file: os.PathLike,
             data_dir: os.PathLike,
+            eval_data: bool = True,
             transform = None,            
             startswith: str = "",
             readjustonce: bool = True,
             segment_ms: int = None,
-            filter_utilized: bool = False,            
+            filter_utilized: bool = False,
+            cross_val_fold: int = None,            
             ):
         
         self.data_dir = data_dir
         self.transform = transform
         self.annotations = pd.read_csv(annotations_file)
         # get training/validation studies only
-        self.annotations = self.annotations[self.annotations["training"] == False]
+        if eval_data == True:
+            if cross_val_fold is None:
+                self.annotations = self.annotations[self.annotations["training"] == False]
+            else:
+                self.annotations = self.annotations[self.annotations["fold"] == cross_val_fold]
+        else:
+            if cross_val_fold is None:
+                self.annotations = self.annotations[self.annotations["training"] == True]
+            else:
+                self.annotations = self.annotations[self.annotations["fold"] != cross_val_fold]
+
         self.annotations.reset_index(drop=True, inplace=True)
         
         self.readjustonce = readjustonce
@@ -307,10 +332,12 @@ if __name__ == "__main__":
         startswith="LA",
         readjustonce=False, 
         segment_ms=100,
-        filter_utilized=True,           
+        filter_utilized=True,  
+        eval_data=False, 
+        #cross_val_fold=3,        
     )
 
-    validation_dataloader = DataLoader(validation_data, batch_size=8, shuffle=False, collate_fn=collate_validation)
+    validation_dataloader = DataLoader(validation_data, batch_size=100, shuffle=False, collate_fn=collate_validation)
 
     duration, event, traces, traces_masks = next(iter(validation_dataloader))
     print(f"Durations: {duration}")

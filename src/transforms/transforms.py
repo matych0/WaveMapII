@@ -87,6 +87,22 @@ class ZScore(BaseTransform):
 
         return x
     
+    
+class TanhNormalize(BaseTransform):
+    """Returns tanh normalized data"""
+    def __init__(self, factor: float = 0, **kwargs):
+        super().__init__()
+
+        self.factor = factor
+
+    def __call__(self, x, **kwargs):
+        return super().__call__(x)
+
+    def transform(self, x, **kwargs):
+        x = np.tanh(x / self.factor)
+
+        return x
+    
 
 class Normalize(BaseTransform):
     """Normalizes each signal to range [-1, 1]"""
@@ -130,11 +146,12 @@ class RandomShift(BaseTransform):
     """
         Class randomly shifts signal within temporal dimension
     """
-    def __init__(self, probability: float, shift_range: float = 0.9, shuffle: bool = True, random_seed: int = None, **kwargs):
+    def __init__(self, probability: float, shift_range: float = 0.9, arbitrary: float = None, shuffle: bool = True, random_seed: int = None, **kwargs):
         assert 0.0 < shift_range <= 1.0, "shift_range should be in (0, 1]."
         
         self.probability = probability
         self.shift_range = shift_range
+        self.arbitrary = arbitrary
         self.rng = np.random.default_rng(random_seed)
         super().__init__(shuffle=shuffle, random_seed=random_seed)
 
@@ -150,6 +167,9 @@ class RandomShift(BaseTransform):
         # Generate random shift fractions in range [-shift_range, shift_range]
         shift_fractions = self.rng.uniform(-self.shift_range, self.shift_range, size=num_transformed)
 
+        if self.arbitrary is not None:
+            shift_fractions = np.array([self.arbitrary] * num_transformed)
+
         # Convert to integer shift values
         shifts = np.round(shift_fractions * signal_length).astype(int)
 
@@ -164,12 +184,13 @@ class RandomGaussian(BaseTransform):
     """
         Class randomly adds gaussian noise to signal
     """
-    def __init__(self, probability: float, low_limit: float, high_limit: float, shuffle: bool = True, random_seed: int = None, **kwargs):
+    def __init__(self, probability: float, low_limit: float, high_limit: float, arbitrary: float = None, shuffle: bool = True, random_seed: int = None, **kwargs):
         super().__init__(shuffle=shuffle, random_seed=random_seed)
         self.probability = probability
         self.rng = np.random.default_rng(random_seed)
         self.low_limit = low_limit
         self.high_limit = high_limit
+        self.arbitrary = arbitrary
         
 
     def __call__(self, x, **kwargs):
@@ -181,6 +202,9 @@ class RandomGaussian(BaseTransform):
         num_transformed = round(self.probability * num_signals)  # Number of signals to add noise to
 
         noise_dbs = self.rng.uniform(self.low_limit, self.high_limit, size=num_transformed)
+
+        if self.arbitrary is not None:
+            noise_dbs = np.array([self.arbitrary] * num_transformed)
 
         for i, db in zip(range(num_transformed), noise_dbs):
             # estimate SNR
@@ -194,12 +218,13 @@ class RandomAmplifier(BaseTransform):
     """
     Class randomly amplifies signal
     """
-    def __init__(self, probability: float, limit: float, shuffle: bool = True, random_seed: int = None, **kwargs):
+    def __init__(self, probability: float, limit: float, arbitrary: float = None, shuffle: bool = True, random_seed: int = None, **kwargs):
         super().__init__(shuffle=shuffle, random_seed=random_seed)
 
         self.rng = np.random.default_rng(random_seed)
         self.probability = probability
         self.limit = limit
+        self.arbitrary = arbitrary
 
     def __call__(self, x, **kwargs):
         return super().__call__(x, **kwargs)
@@ -211,7 +236,10 @@ class RandomAmplifier(BaseTransform):
         num_transformed = round(self.probability * num_signals)  # Number of signals to amplify
 
         amplify_factors = self.rng.uniform(1 - self.limit, 1+ self.limit, size=num_transformed)
-        print(amplify_factors)
+        
+        if self.arbitrary is not None:
+            amplify_factors = np.array([self.arbitrary] * num_transformed)
+
         x[:num_transformed] *= amplify_factors[:, np.newaxis]
 
         return x
@@ -221,12 +249,13 @@ class RandomTemporalScale(BaseTransform):
     """
     Class randomly stretches temporal dimension of signal
     """
-    def __init__(self, probability: float, limit: float, shuffle: bool = True, random_seed: int = None, **kwargs):
+    def __init__(self, probability: float, limit: float, arbitrary: float = None, shuffle: bool = True, random_seed: int = None, **kwargs):
         super().__init__(shuffle=shuffle, random_seed=random_seed)
 
         self.rng = np.random.default_rng(random_seed)
         self.probability = probability
         self.limit = limit
+        self.arbitrary = arbitrary
 
     def __call__(self, x, **kwargs):
         return super().__call__(x, **kwargs)
@@ -236,8 +265,13 @@ class RandomTemporalScale(BaseTransform):
         num_transformed = round(self.probability * num_signals)  # Number of signals to amplify
 
         factors = self.rng.uniform(1 - self.limit,1 + self.limit, size=num_transformed)
+
+        if self.arbitrary is not None:
+            factors = np.array([self.arbitrary] * num_transformed)
+
+
         new_widths = (factors * width).astype(int)
-        print(new_widths)
+        #print(new_widths)
 
         x_resampled = np.zeros_like(x)
 
@@ -476,16 +510,71 @@ def plot_subplots(data, trans_data, num_subplots, title="Subplots", fs=2035):
             ax[i].set_ylabel("voltage [mV]")
         else:
             ax[i].plot(time_ms, trans_data[i//2])
-            ax[i].set_ylim(data_min - padding, data_max + padding)
+            ax[i].set_ylim(-1 - padding, 1 + padding)
             ax[i].axhline(0, color='red', linestyle='--', linewidth=1)
             #ax[i].set_title(f"Transformed Signal {i//2+1}")
             ax[i].set_xlabel("time [ms]")
-            ax[i].set_ylabel("voltage [mV]")
+            ax[i].set_ylabel("amplitude [mV]")
 
     
 
     plt.tight_layout()
     plt.show()
+
+def visualize_transforms(signal, seed):
+    # Define two arbitrary settings for each transform
+    arbitrary_values = {
+        "temporal_scale": [0.8, 1.2],
+        "amplifier": [0.8, 1.2],
+        "noise": [10, 30],
+        "shift": [-0.3, 0.3]
+    }
+
+    # Create transform instances with different arbitrary values
+    transforms = {
+        "Temporal Scale": [
+            RandomTemporalScale(probability=1, limit=0.2, arbitrary=arbitrary_values["temporal_scale"][0], shuffle=True, random_seed=seed),
+            RandomTemporalScale(probability=1, limit=0.2, arbitrary=arbitrary_values["temporal_scale"][1], shuffle=True, random_seed=seed)
+        ],
+        "Amplifier": [
+            RandomAmplifier(probability=1, limit=0.5, arbitrary=arbitrary_values["amplifier"][0], shuffle=True, random_seed=seed),
+            RandomAmplifier(probability=1, limit=0.5, arbitrary=arbitrary_values["amplifier"][1], shuffle=True, random_seed=seed)
+        ],
+        "Gaussian Noise": [
+            RandomGaussian(probability=1, low_limit=10, high_limit=30, arbitrary=arbitrary_values["noise"][0], shuffle=True, random_seed=seed),
+            RandomGaussian(probability=1, low_limit=10, high_limit=30, arbitrary=arbitrary_values["noise"][1], shuffle=True, random_seed=seed)
+        ],
+        "Shift": [
+            RandomShift(probability=1, shift_range=0.3, arbitrary=arbitrary_values["shift"][0], shuffle=True, random_seed=seed),
+            RandomShift(probability=1, shift_range=0.3, arbitrary=arbitrary_values["shift"][1], shuffle=True, random_seed=seed)
+        ]
+    }
+
+    # Plot setup
+    fig, axes = plt.subplots(nrows=4, ncols=3, figsize=(15, 12))
+    fig.suptitle("Effect of Transforms on Signal", fontsize=18)
+
+    for i, (name, (transform_low, transform_high)) in enumerate(transforms.items()):
+        # Plot original
+        axes[i, 0].plot(signal[0,:], color='black')
+        axes[i, 0].set_title(f"{name} - Original")
+
+        # Plot with lower arbitrary value
+        transformed1 = transform_low(signal.copy())
+        axes[i, 1].plot(transformed1[0,:], color='blue')
+        axes[i, 1].set_title(f"{name} - arbitrary={transform_low.arbitrary}")
+
+        # Plot with higher arbitrary value
+        transformed2 = transform_high(signal.copy())
+        axes[i, 2].plot(transformed2[0,:], color='red')
+        axes[i, 2].set_title(f"{name} - arbitrary={transform_high.arbitrary}")
+
+        for j in range(3):
+            axes[i, j].grid(True)
+
+    plt.tight_layout(rect=[0, 0, 1, 0.96])
+    plt.show()
+    
 
 
 if __name__ == "__main__":
@@ -521,33 +610,33 @@ if __name__ == "__main__":
     
     
 
-    x = np.array(x[0,95:,:])
+    x = np.expand_dims(np.array(x[0,95,:]), axis=0)
 
     x_orig = np.copy(x)
 
     seed = 5032001
 
-    polarity =  RandomPolarity(probability=0.5, shuffle=True, random_seed=seed)
+    """ #polarity =  RandomPolarity(probability=0.5, shuffle=True, random_seed=seed)
     temporal_scale = RandomTemporalScale(probability=0.2, limit=0.2, shuffle=True, random_seed=seed)
     amplifier = RandomAmplifier(probability=0.4, limit=0.5, shuffle=True, random_seed=seed)
     noise = RandomGaussian(probability=0.2, low_limit=10, high_limit=30, shuffle=True, random_seed=seed)
     shift = RandomShift(probability=0.8, shuffle=True, random_seed=seed, shift_range=0.3)
-    zscore = ZScore(mean=0.0, std = 0.378)
+    tanh_normalize = TanhNormalize(factor=5)
     shuffle = BaseTransform(shuffle=True, random_seed=seed)
 
     transform = transforms.Compose([
-        #zscore,
-        polarity,
+        #polarity,
         amplifier,
         temporal_scale,
         shift,
         noise,
         shuffle,
+        tanh_normalize,
     ])
 
     x_trans = transform(x)
 
-    plot_subplots(x, x_trans, num_subplots=x_orig.shape[0], title="Signal Transform")
+    plot_subplots(x, x_trans, num_subplots=x_orig.shape[0], title="Signal Transform") """
 
     """ x = np.array(x_orig[1,95:,:])
     x_trans_2 = transform(x)
@@ -555,3 +644,7 @@ if __name__ == "__main__":
     plot_subplots(x_orig, x_trans_2, num_subplots=x_orig.shape[0], title="Signal Transform")
     
  """
+    
+    visualize_transforms(x, seed)
+
+    print("Done")

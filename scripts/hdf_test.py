@@ -3,7 +3,9 @@ import h5py
 import pandas as pd
 import torch
 import numpy as np
+import seaborn as sns
 from typing import Union
+import matplotlib.pyplot as plt
 
 def read_hdf(
         file_path: Union[str, os.PathLike],
@@ -114,6 +116,64 @@ def scan_hdf_directories(base_dir: str) -> pd.DataFrame:
     # Save the DataFrame to a CSV file
     #df.to_csv("/media/guest/DataStorage/WaveMap/WaveMapEnsiteAnnotations/hdf_dataset_overview.csv", index=False)
 
+def plot_histogram(all_traces, bins=100):
+    
+    row_maxes = torch.max(all_traces, dim=1).values  # shape: (num_rows,)
+    row_mins = torch.min(all_traces, dim=1).values   # shape: (num_rows,)
+
+    # Convert to numpy for plotting
+    max_vals = row_maxes.numpy()
+    min_vals = row_mins.numpy()
+
+    # Plot histograms
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+
+    # Histogram for max values
+    axes[0].hist(max_vals, bins=bins, color='skyblue', edgecolor='black')
+    axes[0].set_title('Histogram of Row-wise Max Values')
+    axes[0].set_xlabel('Max Value')
+    axes[0].set_ylabel('Frequency')
+
+    # Histogram for min values
+    axes[1].hist(min_vals, bins=bins, color='salmon', edgecolor='black')
+    axes[1].set_title('Histogram of Row-wise Min Values')
+    axes[1].set_xlabel('Min Value')
+    axes[1].set_ylabel('Frequency')
+
+    plt.tight_layout()
+    plt.show()
+
+
+    # Create a DataFrame for seaborn
+    df = pd.DataFrame({
+        'value': list(max_vals) + list(min_vals),
+        'Legend': ['Positive amplitude'] * len(row_maxes) + ['Negative amplitude'] * len(row_mins)
+    })
+
+
+    # Plot using seaborn
+    plt.figure(figsize=(6, 4))
+    sns.histplot(data=df, x='value', hue='Legend', bins=100, kde=False, palette="vlag", hue_order=['Negative amplitude', 'Positive amplitude'], edgecolor='black', alpha=1)
+    #plt.title('Histogram of Row-wise Max and Min Values')
+    plt.xlabel('Amplitude [mV]', fontsize=10)
+    plt.ylabel('Frequency [-]', fontsize=10)
+    plt.tight_layout()
+    plt.show()
+
+    df = pd.DataFrame({
+        'Positive amplitude [mV]': row_maxes,
+        'Absolute value of negative amplitude [mV]': torch.abs(row_mins)
+    })
+
+    # Plot joint histogram
+    plt.figure(figsize=(4, 4))
+    #sns.jointplot(data=df, x='Positive amplitude [mV]', y='Absolute value of negative amplitude [mV]', kind='hist', bins=100, marginal_kws=dict(bins=50))
+    sns.jointplot(data=df, x='Positive amplitude [mV]', y='Absolute value of negative amplitude [mV]',marker="+", s=100, marginal_kws=dict(bins=50, fill=False),)
+
+    plt.xlabel('Positive amplitude [mV]', fontsize=10)
+    plt.ylabel('Absolute value of negative amplitude [mV]', fontsize=10)
+    plt.show()
+
 
 # Mean and std computation for the purpose of Z-score normalization
 def compute_mean_std_from_hdf(base_dir: str, max_files: int = 20, segment_ms: int = 100):
@@ -127,8 +187,11 @@ def compute_mean_std_from_hdf(base_dir: str, max_files: int = 20, segment_ms: in
                 break
             path = os.path.join(root, fname)
             try:
-                traces, fs, metadata = read_hdf(path, return_fs=True, metadata_keys=["rov LAT", "end time"])
-                t_amp, t_last = metadata["rov LAT"], metadata["end time"]
+                traces, fs, metadata = read_hdf(path, return_fs=True, metadata_keys=["rov LAT", "end time", "utilized"])
+                utilized, t_amp, t_last = metadata["utilized"], metadata["rov LAT"], metadata["end time"]
+                traces = traces[utilized,:]
+                t_amp = t_amp[utilized]
+                t_last = t_last[utilized]
                 indices = compute_amplitude_indices(t_amp, t_last, fs, traces.shape[1])
                 traces = segment_signals(traces, indices, segment_ms, fs)
                 traces = torch.tensor(traces, dtype=torch.float32)
@@ -145,14 +208,41 @@ def compute_mean_std_from_hdf(base_dir: str, max_files: int = 20, segment_ms: in
         return None
 
     all_traces = torch.cat(trace_list, dim=0)  # (N_total, 2035)
+    #all_traces = torch.tanh(all_traces / 5)
     mean = all_traces.mean()
     std = all_traces.std()
+    min_val = all_traces.min()
+    max_val = all_traces.max()
+
+    row_maxes = torch.max(all_traces, dim=1).values  # shape: (num_rows,)
+    row_mins = torch.min(all_traces, dim=1).values   # shape: (num_rows,)
+
+    # Mean of row-wise max and min values
+    mean_max = row_maxes.mean()
+    mean_min = row_mins.mean()
+    median_max = row_maxes.median()
+    median_min = row_mins.median()
+    pos_quantil_90= torch.quantile(row_maxes, 0.9)
+    neg_quantil_10= torch.quantile(row_mins, 0.1)
+
+
+    # plot_histogram(row_maxes, row_mins, bins = 100)
 
     print(f"Concatenated tensor shape: {all_traces.shape}")
     print(f"Mean: {mean.item():.4f}")
     print(f"Std: {std.item():.4f}")
+    print(f"Min: {min_val.item():.4f}")
+    print(f"Max: {max_val.item():.4f}")
 
-    return mean, std
+    print(f"Mean of row-wise max: {mean_max.item():.4f}")
+    print(f"Mean of row-wise min: {mean_min.item():.4f}")
+    print(f"Median of row-wise max: {median_max.item():.4f}")
+    print(f"Median of row-wise min: {median_min.item():.4f}")
+    print(f"90th percentile of row-wise max: {pos_quantil_90.item():.4f}")
+    print(f"10th percentile of row-wise min: {neg_quantil_10.item():.4f}")
+    print(f"Number of files loaded: {files_loaded}")
+
+    return all_traces
 
 
 if __name__ == "__main__":
@@ -161,8 +251,11 @@ if __name__ == "__main__":
     """ df = scan_hdf_directories(base_directory)
     print(df.head()) """
 
-    mean, std = compute_mean_std_from_hdf(base_directory, max_files=150, segment_ms=100)
-    print(f"Mean: {mean}, Std: {std}")
+    all_traces = compute_mean_std_from_hdf(base_directory, max_files=150, segment_ms=100)
+
+    #plot_histogram(all_traces, bins=100)
+
+    print("Done")
 
 
 

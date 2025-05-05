@@ -2,6 +2,7 @@ import optuna
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from torchvision import transforms
 from transformers import get_cosine_schedule_with_warmup
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
@@ -9,8 +10,8 @@ from src.dataset.dataset import HDFDataset, ValidationDataset
 from src.dataset.collate import collate_padding, collate_validation
 from model.cox_mil_resnet import CoxAttentionResnet
 from losses.loss import CoxLoss
-from src.transforms.transforms import (RandomPolarity, RandomAmplifier, RandomGaussian,
-                                       RandomTemporalScale, RandomShift, ZScore)
+from src.transforms.transforms import (BaseTransform, RandomAmplifier, RandomGaussian,
+                                       RandomTemporalScale, RandomShift, TanhNormalize)
 import datetime
 import numpy as np
 
@@ -20,6 +21,9 @@ import torchtuples as tt
 import pandas as pd
 from statistics import median
 
+
+#Set seed
+SEED = 3052001
 
 ANNOTATION_DIR = "/media/guest/DataStorage/WaveMap/HDF5/annotations_train.csv"
 DATA_DIR = "/media/guest/DataStorage/WaveMap/HDF5"
@@ -63,26 +67,55 @@ def get_predictions(loader, model):
     return risks_tensor, durations_tensor, events_tensor
 
 
+def set_seed(seed):
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+
 
 def objective(trial):
     """Objective function for Optuna hyperparameter optimization."""
+    set_seed(SEED)
+
 
     # Hyperparameters to optimize
-    projection_nodes = 128#trial.suggest_categorical('projection_nodes', [64, 128, 256])
-    attention_nodes = 32 #trial.suggest_categorical('attention_nodes', [32, 64, 128])
-    dropout = 0.0 #trial.suggest_categorical('dropout', [0.0, 0.25, 0.5])
-    cox_regularization = 0.0 #rial.suggest_categorical('cox_regularization', [0.0, 1e-3, 1e-2, 1e-1])
-    learning_rate = 0.001 #trial.suggest_categorical('learning_rate', [1e-4, 1e-3, 5e-3, 1e-2, 5e-2]) #1e-5,
-    weight_decay = 0.001 #trial.suggest_categorical('weight_decay', [1e-5, 1e-4, 1e-3, 1e-2])
-    batch_size = 2 #trial.suggest_categorical("batch_size", [2,4,8])
-    num_epochs =  trial.suggest_int("num_epochs", 50, 400)
+    projection_nodes = trial.suggest_categorical('projection_nodes', [64, 128, 256])
+    attention_nodes = trial.suggest_categorical('attention_nodes', [32, 64, 128])
+    dropout = trial.suggest_categorical('dropout', [0.0, 0.25, 0.5])
+    cox_regularization = trial.suggest_categorical('cox_regularization', [0.0, 1e-3, 1e-2, 1e-1])
+    learning_rate = trial.suggest_categorical('learning_rate', [1e-4, 1e-3, 5e-3, 1e-2, 5e-2])
+    weight_decay = trial.suggest_categorical('weight_decay', [1e-4, 1e-3, 1e-2])
+    batch_size =  trial.suggest_categorical("batch_size", [4,8,16,24])
+    num_epochs =  trial.suggest_int("num_epochs", 50, 500)
+
+
+
+    # Transformations
+    temporal_scale = RandomTemporalScale(probability=0.2, limit=0.2, shuffle=True, random_seed=SEED)
+    amplifier = RandomAmplifier(probability=0.2, limit=0.2, shuffle=True, random_seed=SEED)
+    noise = RandomGaussian(probability=0.2, low_limit=10, high_limit=30, shuffle=True, random_seed=SEED)
+    shift = RandomShift(probability=0.5, shift_range=0.3, shuffle=True, random_seed=SEED)
+    tanh_normalize = TanhNormalize(factor=5)
+    shuffle = BaseTransform(shuffle=True, random_seed=SEED)
+
+    train_transform = transforms.Compose([
+        amplifier,
+        temporal_scale,
+        shift,
+        noise,
+        shuffle,
+        tanh_normalize,
+    ])
+
+    val_transform = transforms.Compose([
+        tanh_normalize,
+    ])
 
     # Dataset & Dataloader
     train_dataset = HDFDataset(
         annotations_file=ANNOTATION_DIR,
         data_dir=DATA_DIR,
         train=True,
-        transform=None,
+        transform=train_transform,
         startswith="LA",
         readjustonce=True,
         segment_ms=SEGMENT_MS,
@@ -93,7 +126,7 @@ def objective(trial):
     val_dataset = ValidationDataset(
         annotations_file=ANNOTATION_DIR,
         data_dir=DATA_DIR,
-        transform=None,
+        transform=val_transform,
         startswith="LA",
         readjustonce=True,
         segment_ms=SEGMENT_MS,
@@ -124,13 +157,17 @@ def objective(trial):
         "dropout_prob": dropout,
     }
 
-    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_padding)
+
+    # Create DataLoader
+    generator = torch.Generator()
+    generator.manual_seed(SEED)
+    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, generator=generator, collate_fn=collate_padding)
     val_dataloader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_validation)
     date = datetime.datetime.now().strftime('%d%m%Y-%H%M%S')
 
 
     # Create a directory for TensorBoard logs
-    log_dir = f"runs/oversampling_test/optuna_trial_{trial.number}"
+    log_dir = f"runs/hyperparam_optim_02_05/optuna_trial_{trial.number}"
     writer = SummaryWriter(log_dir)
 
     # Model, Loss, Optimizer
@@ -201,18 +238,21 @@ def objective(trial):
 
 if __name__ == "__main__":
 
-    sampler = optuna.samplers.TPESampler(multivariate=True, seed=42)# n_startup_trials=10, )
+    num_trials = 100
+
+    sampler = optuna.samplers.TPESampler(multivariate=True, seed=3052001, n_startup_trials=20)
     
     study = optuna.create_study(
-        study_name="oversampling_test",
-        storage="sqlite:///oversampling_test.db",
+        study_name="hyperparam_optim_02_05",
+        storage="sqlite:///hyperparam_optim_02_05.db",
         direction="maximize",
         sampler=sampler,
         load_if_exists=True
     )
 
-    study.optimize(objective, n_trials=5)
+    study.optimize(objective, n_trials=num_trials)
     print("Best hyperparameters:", study.best_params)
+
     """ optuna.visualization.plot_optimization_history(study)
     optuna.visualization.plot_param_importances(study)
     optuna.visualization.plot_slice(study)
