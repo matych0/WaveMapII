@@ -532,42 +532,69 @@ def visualize_transforms(signal, seed):
 
     # Create transform instances with different arbitrary values
     transforms = {
-        "Temporal Scale": [
+        "Temporal Scaling": [
             RandomTemporalScale(probability=1, limit=0.2, arbitrary=arbitrary_values["temporal_scale"][0], shuffle=True, random_seed=seed),
             RandomTemporalScale(probability=1, limit=0.2, arbitrary=arbitrary_values["temporal_scale"][1], shuffle=True, random_seed=seed)
         ],
-        "Amplifier": [
-            RandomAmplifier(probability=1, limit=0.5, arbitrary=arbitrary_values["amplifier"][0], shuffle=True, random_seed=seed),
-            RandomAmplifier(probability=1, limit=0.5, arbitrary=arbitrary_values["amplifier"][1], shuffle=True, random_seed=seed)
+        "Amplitude Scaling": [
+            RandomAmplifier(probability=1, limit=0.2, arbitrary=arbitrary_values["amplifier"][0], shuffle=True, random_seed=seed),
+            RandomAmplifier(probability=1, limit=0.2, arbitrary=arbitrary_values["amplifier"][1], shuffle=True, random_seed=seed)
         ],
-        "Gaussian Noise": [
+        "Jittering": [
             RandomGaussian(probability=1, low_limit=10, high_limit=30, arbitrary=arbitrary_values["noise"][0], shuffle=True, random_seed=seed),
             RandomGaussian(probability=1, low_limit=10, high_limit=30, arbitrary=arbitrary_values["noise"][1], shuffle=True, random_seed=seed)
         ],
-        "Shift": [
+        "Temporal Shifting": [
             RandomShift(probability=1, shift_range=0.3, arbitrary=arbitrary_values["shift"][0], shuffle=True, random_seed=seed),
             RandomShift(probability=1, shift_range=0.3, arbitrary=arbitrary_values["shift"][1], shuffle=True, random_seed=seed)
         ]
     }
 
     # Plot setup
-    fig, axes = plt.subplots(nrows=4, ncols=3, figsize=(15, 12))
-    fig.suptitle("Effect of Transforms on Signal", fontsize=18)
+    fig, axes = plt.subplots(nrows=4, ncols=3, figsize=(7, 11))
+
+    data_min = signal.min() * arbitrary_values["amplifier"][1]
+    data_max = signal.max() * arbitrary_values["amplifier"][1]
+    padding = 0.2
 
     for i, (name, (transform_low, transform_high)) in enumerate(transforms.items()):
+        low = transform_low.arbitrary
+        high = transform_high.arbitrary
+
+        if name in ["Temporal Scaling", "Amplitude Scaling", "Temporal Shifting"]:
+            title_low = f"{name}: {int(low*100)} %"
+            title_high = f"{name}: {int(high*100)} %"
+        else:
+            title_low = f"{name}: {low} dB"
+            title_high = f"{name}: {high} dB"
+
+        if name == ("Temporal Shifting"):
+            title_high = f"{name}: +{int(high*100)} %"
+
+        time_ms = np.arange(signal.shape[1]) * (1000 / 2035)
+
         # Plot original
-        axes[i, 0].plot(signal[0,:], color='black')
-        axes[i, 0].set_title(f"{name} - Original")
+        axes[i, 0].plot(time_ms, signal[0,:], color='black')
+        axes[i, 0].set_title("Original Signal", fontsize=11)
+        axes[i, 0].set_ylabel("Voltage [mV]")
+        axes[i, 0].set_ylim(data_min - padding, data_max + padding)
 
         # Plot with lower arbitrary value
         transformed1 = transform_low(signal.copy())
-        axes[i, 1].plot(transformed1[0,:], color='blue')
-        axes[i, 1].set_title(f"{name} - arbitrary={transform_low.arbitrary}")
+        axes[i, 1].plot(time_ms, transformed1[0,:], color='blue')
+        axes[i, 1].set_title(title_low, fontsize=11)
+        axes[i, 1].set_ylim(data_min - padding, data_max + padding)
 
         # Plot with higher arbitrary value
         transformed2 = transform_high(signal.copy())
-        axes[i, 2].plot(transformed2[0,:], color='red')
-        axes[i, 2].set_title(f"{name} - arbitrary={transform_high.arbitrary}")
+        axes[i, 2].plot(time_ms, transformed2[0,:], color='red')
+        axes[i, 2].set_title(title_high, fontsize=11)
+        axes[i, 2].set_ylim(data_min - padding, data_max + padding)
+
+        if i == 3:
+            axes[i, 0].set_xlabel("Time [ms]")
+            axes[i, 1].set_xlabel("Time [ms]")
+            axes[i, 2].set_xlabel("Time [ms]")
 
         for j in range(3):
             axes[i, j].grid(True)

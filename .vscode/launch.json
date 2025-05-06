@@ -9,7 +9,7 @@
             "name": "Python: Run Module",
             "type": "debugpy",
             "request": "launch",
-            "module": "scripts.cross_validation",
+            "module": "scripts.hyperparam_optim_eval",
             "console": "integratedTerminal"
           }
     ]
