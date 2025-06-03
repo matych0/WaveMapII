@@ -604,6 +604,56 @@ def visualize_transforms(signal, seed):
     
 
 
+def visualize_single_transform_two_signals(signal1, signal2, transform, sampling_rate=2035):
+    """
+    Visualizes the effect of a single transform on two different signals in a 2x2 plot.
+    
+    Parameters:
+    - signal1, signal2: Input signals of shape (1, T)
+    - transform: A transform instance with __call__ method, e.g., TanhNormalize(factor=5)
+    - sampling_rate: Sampling rate in Hz to convert time axis to milliseconds
+    """
+
+    signals = [signal1, signal2]
+    time_ms_1 = np.arange(signal1.shape[1]) * (1000 / sampling_rate)
+    time_ms_2 = np.arange(signal2.shape[1]) * (1000 / sampling_rate)
+    time_axes = [time_ms_1, time_ms_2]
+
+    fig, axes = plt.subplots(nrows=2, ncols=2, figsize=(8, 5))
+
+    for i, (sig, time_ms) in enumerate(zip(signals, time_axes)):
+        # Original signal
+        orig_signal = sig[0]
+        sig_min = orig_signal.min()
+        sig_max = orig_signal.max()
+        original_padding = np.abs(sig_max - sig_min) * 0.2
+        axes[i, 0].plot(time_ms, orig_signal, color='black')
+        if i == 0:
+            axes[i, 0].set_title("Original Signal", fontsize=11)
+        axes[i, 0].set_ylabel("Voltage [mV]")
+        axes[i, 0].set_ylim(sig_min - original_padding, sig_max + original_padding)
+        axes[i, 0].grid(True)
+
+        # Transformed signal
+        transformed = transform(sig.copy())
+        trans_signal = transformed[0]
+        trans_min = trans_signal.min()
+        trans_max = trans_signal.max()
+        transformed_padding = np.abs(trans_max - trans_min) * 0.2
+
+        axes[i, 1].plot(time_ms, trans_signal, color='blue')
+        if i == 0:
+            axes[i, 1].set_title(f"Tanh Normalization", fontsize=11)
+        axes[i, 1].set_ylim(trans_min - transformed_padding, trans_max + transformed_padding)
+        axes[i, 1].grid(True)
+
+    for j in range(2):
+        axes[1, j].set_xlabel("Time [ms]")
+
+    plt.tight_layout()
+    plt.show()
+
+
 if __name__ == "__main__":
     """ frequencies = [1, 2, 3, 4, 17]
     amplitudes = [1.2, 0.8, 1.5, 1.0, 0.7]
@@ -631,15 +681,15 @@ if __name__ == "__main__":
     )
 
 
-    train_dataloader = DataLoader(training_data, batch_size=2, shuffle=True)
+    train_dataloader = DataLoader(training_data, batch_size=2, shuffle=False)
 
     x, y = next(iter(train_dataloader))
     
     
 
-    x = np.expand_dims(np.array(x[0,95,:]), axis=0)
+    x_orig = np.expand_dims(np.array(x[0,95,:]), axis=0)
 
-    x_orig = np.copy(x)
+    y_orig = np.expand_dims(np.array(y[0,74,:]), axis=0)
 
     seed = 5032001
 
@@ -672,6 +722,10 @@ if __name__ == "__main__":
     
  """
     
-    visualize_transforms(x, seed)
+    #visualize_transforms(x, seed)
+
+    tanh_normalize = TanhNormalize(factor=5)
+
+    visualize_single_transform_two_signals(x_orig, y_orig, tanh_normalize, sampling_rate=2035)
 
     print("Done")

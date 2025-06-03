@@ -90,18 +90,22 @@ def scan_hdf_directories(base_dir: str) -> pd.DataFrame:
 
             try:
                 first_hdf_path = os.path.join(root, hdf_files[0])
-                traces, fs = read_hdf(first_hdf_path, return_fs=True)
+                traces, fs, metadata = read_hdf(first_hdf_path, return_fs=True, metadata_keys=["utilized"])
                 shape = traces.shape
+                utilized = metadata["utilized"]
             except Exception as e:
                 print(f"Failed to read {first_hdf_path}: {e}")
                 shape = None
                 fs = None
+                utilized = None
 
             rows.append({
-                "subfolder": subfolder_name,
+                "EnSiteID": subfolder_name,
                 "shape": shape,
                 "fs": fs,
-                "hdf_file_count": hdf_count
+                "hdf_file_count": hdf_count,
+                "orig_instances": shape[0] if shape is not None else None,
+                "utilized": np.sum(utilized) if utilized is not None else None,
             })
     
     df = pd.DataFrame(rows)
@@ -111,10 +115,32 @@ def scan_hdf_directories(base_dir: str) -> pd.DataFrame:
     mean_num_instances = sum(num_instances) / len(num_instances)
     print(num_instances)
     print(f"Min: {min_num_instances}, Max: {max_num_instances}, Mean: {mean_num_instances}")
+    
+    # Save the DataFrame to a CSV file
+    df.to_csv("/media/guest/DataStorage/WaveMap/WaveMapEnsiteAnnotations/hdf_dataset_overview_overall.csv", index=False)
+
     return df
 
-    # Save the DataFrame to a CSV file
-    #df.to_csv("/media/guest/DataStorage/WaveMap/WaveMapEnsiteAnnotations/hdf_dataset_overview.csv", index=False)
+
+def plot_instances_histogram(df: pd.DataFrame, bins=20):
+
+    df = df.melt(value_vars=["orig_instances", "utilized"], var_name="legend", value_name="num_instances")
+
+    #palette = sns.color_palette(, as_cmap=True)
+
+    fig, ax = plt.subplots(figsize=(8, 6))
+    sns.histplot(
+        ax=ax,
+        data=df,
+        x="num_instances", 
+        hue="legend",
+        bins=bins, 
+        palette="light:b", 
+        edgecolor="black",
+        alpha=0.7,
+        log_scale=True,
+        )
+    plt.show()
 
 def plot_histogram(all_traces, bins=100):
     
@@ -222,8 +248,8 @@ def compute_mean_std_from_hdf(base_dir: str, max_files: int = 20, segment_ms: in
     mean_min = row_mins.mean()
     median_max = row_maxes.median()
     median_min = row_mins.median()
-    pos_quantil_90= torch.quantile(row_maxes, 0.9)
-    neg_quantil_10= torch.quantile(row_mins, 0.1)
+    pos_quantil_80= torch.quantile(row_maxes, 0.85)
+    neg_quantil_20= torch.quantile(row_mins, 0.15)
 
 
     # plot_histogram(row_maxes, row_mins, bins = 100)
@@ -238,8 +264,8 @@ def compute_mean_std_from_hdf(base_dir: str, max_files: int = 20, segment_ms: in
     print(f"Mean of row-wise min: {mean_min.item():.4f}")
     print(f"Median of row-wise max: {median_max.item():.4f}")
     print(f"Median of row-wise min: {median_min.item():.4f}")
-    print(f"90th percentile of row-wise max: {pos_quantil_90.item():.4f}")
-    print(f"10th percentile of row-wise min: {neg_quantil_10.item():.4f}")
+    print(f"85th percentile of row-wise max: {pos_quantil_80.item():.4f}")
+    print(f"15th percentile of row-wise min: {neg_quantil_20.item():.4f}")
     print(f"Number of files loaded: {files_loaded}")
 
     return all_traces
@@ -248,14 +274,14 @@ def compute_mean_std_from_hdf(base_dir: str, max_files: int = 20, segment_ms: in
 if __name__ == "__main__":
     # Example usage
     base_directory = "/media/guest/DataStorage/WaveMap/HDF5"  # Replace with your directory path
-    """ df = scan_hdf_directories(base_directory)
-    print(df.head()) """
+    df = scan_hdf_directories(base_directory)
+    print(df.head())
 
-    all_traces = compute_mean_std_from_hdf(base_directory, max_files=150, segment_ms=100)
+    #plot_instances_histogram(df, bins=20)
+    """ all_traces = compute_mean_std_from_hdf(base_directory, max_files=150, segment_ms=100)
+    plot_histogram(all_traces, bins=100) """
 
-    #plot_histogram(all_traces, bins=100)
-
-    print("Done")
+    #print("Done")
 
 
 

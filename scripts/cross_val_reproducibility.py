@@ -24,6 +24,8 @@ SEED = 3052001
 ANNOTATION_DIR = "/media/guest/DataStorage/WaveMap/HDF5/annotations_train.csv"
 DATA_DIR = "/media/guest/DataStorage/WaveMap/HDF5"
 
+FOLD = 3
+
 #hyperparameters
 KERNEL_SIZE = (1, 5)
 STEM_KERNEL_SIZE = (1, 17)
@@ -68,10 +70,8 @@ def set_seed(seed):
     np.random.seed(seed)
 
 
-def cross_val(folds=3):
+def cross_val():
     """Cross-validation function to evaluate the model."""
-
-    set_seed(SEED)
 
     # Hyperparameters to optimize
     projection_nodes = 128
@@ -81,15 +81,7 @@ def cross_val(folds=3):
     learning_rate = 0.001
     weight_decay = 0.001
     batch_size =  24
-    num_epochs =  413 #91
-
-    # Transformations
-    temporal_scale = RandomTemporalScale(probability=0.2, limit=0.2, shuffle=True, random_seed=SEED)
-    amplifier = RandomAmplifier(probability=0.2, limit=0.2, shuffle=True, random_seed=SEED)
-    noise = RandomGaussian(probability=0.2, low_limit=10, high_limit=30, shuffle=True, random_seed=SEED)
-    shift = RandomShift(probability=0.5, shift_range=0.3, shuffle=True, random_seed=SEED)
-    tanh_normalize = TanhNormalize(factor=5)
-    shuffle = BaseTransform(shuffle=True, random_seed=SEED)
+    num_epochs =  413
 
 
     # Define parameters for LocalActivationResNet
@@ -116,9 +108,19 @@ def cross_val(folds=3):
         "dropout_prob": dropout,
     }
 
-    for fold in range(1, folds + 1):
+    for i in range(2):
 
-        print(f"Fold {fold}/{folds}")
+        print(f"Fold {FOLD}, Run {i}")
+
+        set_seed(SEED)
+
+        # Transformations
+        temporal_scale = RandomTemporalScale(probability=0.2, limit=0.2, shuffle=True, random_seed=SEED)
+        amplifier = RandomAmplifier(probability=0.2, limit=0.2, shuffle=True, random_seed=SEED)
+        noise = RandomGaussian(probability=0.2, low_limit=10, high_limit=30, shuffle=True, random_seed=SEED)
+        shift = RandomShift(probability=0.5, shift_range=0.3, shuffle=True, random_seed=SEED)
+        tanh_normalize = TanhNormalize(factor=5)
+        shuffle = BaseTransform(shuffle=True, random_seed=SEED)
 
         train_transform = transforms.Compose([
             amplifier,
@@ -144,7 +146,31 @@ def cross_val(folds=3):
             segment_ms=SEGMENT_MS,
             filter_utilized=FILTER_UTILIZED,
             oversampling_factor=OVERSAMPLING_FACTOR,
-            cross_val_fold=fold,
+            cross_val_fold=FOLD,
+        )
+
+        val_dataset = ValidationDataset(
+            annotations_file=ANNOTATION_DIR,
+            data_dir=DATA_DIR,
+            eval_data=True,
+            transform=val_transform,
+            startswith="LA",
+            readjustonce=True,
+            segment_ms=SEGMENT_MS,
+            filter_utilized=FILTER_UTILIZED,
+            cross_val_fold=FOLD,
+        )
+
+        """ train_cindex_dataset = ValidationDataset(
+            annotations_file=ANNOTATION_DIR,
+            data_dir=DATA_DIR,
+            eval_data=False,
+            transform=val_transform,
+            startswith="LA",
+            readjustonce=True,
+            segment_ms=SEGMENT_MS,
+            filter_utilized=FILTER_UTILIZED,
+            cross_val_fold=FOLD,
         )
 
         val_loss_dataset = HDFDataset(
@@ -157,32 +183,8 @@ def cross_val(folds=3):
             segment_ms=SEGMENT_MS,
             filter_utilized=FILTER_UTILIZED,
             oversampling_factor=OVERSAMPLING_FACTOR,
-            cross_val_fold=fold,
-        )
-
-        val_dataset = ValidationDataset(
-            annotations_file=ANNOTATION_DIR,
-            data_dir=DATA_DIR,
-            eval_data=True,
-            transform=val_transform,
-            startswith="LA",
-            readjustonce=True,
-            segment_ms=SEGMENT_MS,
-            filter_utilized=FILTER_UTILIZED,
-            cross_val_fold=fold,
-        )
-
-        train_cindex_dataset = ValidationDataset(
-            annotations_file=ANNOTATION_DIR,
-            data_dir=DATA_DIR,
-            eval_data=False,
-            transform=val_transform,
-            startswith="LA",
-            readjustonce=True,
-            segment_ms=SEGMENT_MS,
-            filter_utilized=FILTER_UTILIZED,
-            cross_val_fold=fold,
-        )
+            cross_val_fold=FOLD,
+        ) """
 
 
         # Create DataLoader
@@ -190,11 +192,11 @@ def cross_val(folds=3):
         generator.manual_seed(SEED)
         train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, generator=generator, collate_fn=collate_padding)
         val_dataloader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_validation)
-        val_loss_dataloader = DataLoader(val_loss_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_padding)
-        train_cindex_dataloader = DataLoader(train_cindex_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_validation)
+        """ val_loss_dataloader = DataLoader(val_loss_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_padding)
+        train_cindex_dataloader = DataLoader(train_cindex_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_validation) """
 
         # Create a directory for TensorBoard logs
-        log_dir = f"runs/cross_val_trial_27/fold_{fold}"
+        log_dir = f"runs/cross_val_reproducibility_fixed/fold_{FOLD}/run_{i}/"
         writer = SummaryWriter(log_dir)
 
         # Model, Loss, Optimizer
@@ -224,7 +226,7 @@ def cross_val(folds=3):
                 total_train_loss += loss.item()
 
             avg_train_loss = total_train_loss / len(train_dataloader)
-            print(f"Fold {fold}, Epoch {epoch+1}/{num_epochs}, Training loss: {avg_train_loss:.4f}")
+            print(f"Fold {FOLD}, run {i}, Epoch {epoch+1}/{num_epochs}, Training loss: {avg_train_loss:.4f}")
             writer.add_scalar("Train loss", avg_train_loss, epoch)
 
             current_lr = optimizer.param_groups[0]['lr']
@@ -232,7 +234,7 @@ def cross_val(folds=3):
 
             scheduler.step()
 
-            # Validation loss
+            """ # Validation loss
             model.eval()
             with torch.no_grad():
                 val_loss = 0.0
@@ -241,19 +243,19 @@ def cross_val(folds=3):
                     val_g_control, val_a_control = model(val_control, val_contrl_mask)
                     val_loss += loss_fn(val_g_case, val_g_control, shrink=cox_regularization).item()
                 avg_val_loss = val_loss / len(val_loss_dataloader)
-                print(f"Fold {fold}, Epoch {epoch+1}/{num_epochs}, Validation loss: {avg_val_loss:.4f}")
-                writer.add_scalar("Validation loss", avg_val_loss, epoch)
+                print(f"Fold {FOLD}, run {i}, Epoch {epoch+1}/{num_epochs}, Validation loss: {avg_val_loss:.4f}")
+                writer.add_scalar("Validation loss", avg_val_loss, epoch) """
 
-            # Training C-index
+            """ # Training C-index
             train_preds , train_durations, train_events = get_predictions(train_cindex_dataloader, model)
             concordance_train = cindex(estimate=train_preds.view(-1), event=train_events.view(-1), time=train_durations.view(-1))
-            print(f"Fold {fold}, Epoch {epoch+1}/{num_epochs}, Training C-index: {concordance_train:.4f}")
-            writer.add_scalar("C-index training", concordance_train, epoch)
+            print(f"Fold {FOLD}, run {i}, Epoch {epoch+1}/{num_epochs}, Training C-index: {concordance_train:.4f}")
+            writer.add_scalar("C-index training", concordance_train, epoch) """
 
             # Validation C-index
             val_preds , val_durations, val_events = get_predictions(val_dataloader, model)
             concordance_val = cindex(estimate=val_preds.view(-1), event=val_events.view(-1), time=val_durations.view(-1))
-            print(f"Fold {fold}, Epoch {epoch+1}/{num_epochs}, Validation C-index: {concordance_val:.4f}")
+            print(f"Fold {FOLD}, run {i}, Epoch {epoch+1}/{num_epochs}, Validation C-index: {concordance_val:.4f}")
             writer.add_scalar("C-index evaluation", concordance_val, epoch)
 
         # Log best values (e.g., final validation cindex and training loss)
@@ -268,16 +270,16 @@ def cross_val(folds=3):
             "num_epochs": num_epochs},
             {"hparam/concordance_val": concordance_val, 
             "hparam/loss": avg_train_loss,
-            "hparam/val_loss": avg_val_loss,
-            "hparam/train_cindex": concordance_train}
+            #"hparam/val_loss": avg_val_loss,
+            #"hparam/train_cindex": concordance_train
+            }
         )
 
         writer.close()
 
-        torch.save(model.state_dict(), f"/home/guest/lib/data/saved_models/cross_val_trial_27_fold{fold}.pth")
+        #torch.save(model.state_dict(), f"/home/guest/lib/data/saved_models/cross_val_trial_27_fold{fold}.pth")
 
 
 if __name__ == "__main__":
     # Cross-validation
-    folds = 3
-    cross_val(folds=folds)
+    cross_val()

@@ -9,7 +9,7 @@
             "name": "Python: Run Module",
             "type": "debugpy",
             "request": "launch",
-            "module": "scripts.hyperparam_optim_eval",
+            "module": "scripts.cindex_debug",
             "console": "integratedTerminal"
           }
     ]

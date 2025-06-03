@@ -1,5 +1,9 @@
 import pandas as pd
+import numpy as np
 from sklearn.model_selection import StratifiedKFold
+from scipy.stats import wasserstein_distance
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 
 def complete_ids(main_csv_path, mapping_csv_path, output_csv_path=None):
@@ -67,7 +71,7 @@ def add_elapsed_days(completed_csv_path, elapsed_csv_path, output_csv_path=None)
     return df_merged
 
 
-def mark_exported(df, exported_ids_csv_path, output_csv_path=None):
+def mark_exported(annotations_merged_csv_path, exported_ids_csv_path, output_csv_path=None):
     """
     Adds an 'exported' column to the DataFrame by merging with exported IDs.
     'exported' is 1 if 'EnSiteID' is in the exported list, else 0.
@@ -79,7 +83,7 @@ def mark_exported(df, exported_ids_csv_path, output_csv_path=None):
     Returns:
     - pd.DataFrame: The DataFrame with an added 'exported' column.
     """
-    df = pd.read_csv(df)
+    df = pd.read_csv(annotations_merged_csv_path)
     # Load and prepare the exported IDs
     df_exported = pd.read_csv(exported_ids_csv_path)
 
@@ -93,11 +97,13 @@ def mark_exported(df, exported_ids_csv_path, output_csv_path=None):
     df_exported['exported'] = 1
 
     # Merge to assign the 'exported' status
-    df_merged = df.merge(df_exported[['EnSiteID', 'exported']],
+    df_merged = df.merge(df_exported[['EnSiteID', 'exported', 'utilized']],
                          on='EnSiteID', how='left')
 
     # Fill NaNs in 'exported' with 0 (i.e., not exported)
     df_merged['exported'] = df_merged['exported'].fillna(0).astype(int)
+
+    df_merged['utilized'] = df_merged['utilized'].fillna(0).astype(int)
 
     # Save if path provided
     if output_csv_path:
@@ -135,7 +141,7 @@ def assign_stratified_folds(annotation_csv_path, output_csv_path=None, n_splits=
     df['fold'] = -1
 
     # Assign fold numbers (1-based)
-    for fold_number, (_, val_idx) in enumerate(skf.split(df, df['recurrence']), start=1):
+    for fold_number, (_, val_idx) in enumerate(skf.split(df, df['recurrence'])):
         df.loc[val_idx, 'fold'] = fold_number
 
     df["training"] = df["fold"].apply(lambda x: 1 if (x == 1 or x == 2) else 0)
@@ -147,23 +153,129 @@ def assign_stratified_folds(annotation_csv_path, output_csv_path=None, n_splits=
     return df
 
 
-if __name__ == "__main__":
-    # Example usage
-    #main_csv = "/media/guest/DataStorage/WaveMap/WaveMapEnsiteAnnotations/wave_map_ids_complete.csv"
-    #mapping_csv = "/media/guest/DataStorage/WaveMap/WaveMapEnsiteAnnotations/follow_up_filtered.csv"
-    #output_csv = "/media/guest/DataStorage/WaveMap/WaveMapEnsiteAnnotations/annotations_merged.csv"
 
-    #completed_df = add_elapsed_days(main_csv, mapping_csv)#, output_csv)
-    #print(completed_df.head())
-    #print(completed_df["EnSiteID"].value_counts())
-    #export_csv = "/media/guest/DataStorage/WaveMap/WaveMapEnsiteAnnotations/hdf_dataset_overview.csv"
-    annotations_export = "/media/guest/DataStorage/WaveMap/WaveMapEnsiteAnnotations/annotations_export.csv"
-    annotations_train = "/media/guest/DataStorage/WaveMap/WaveMapEnsiteAnnotations/annotations_train.csv"
-    #export_df = mark_exported(output_csv, export_csv, annotations_csv)
-    #print(export_df.head())
-    #print(export_df["exported"].value_counts())
+def compute_wasserstein_distance_across_folds(df, column, n_splits):
+    global_values = df[column].values
+    dists = []
 
-    #train_df = assign_stratified_folds(annotations_export, n_splits=3, random_state=5032001, output_csv_path=annotations_train)
-    #print(train_df.head())
+    for fold in range(n_splits):
+        fold_values = df[df['fold'] == fold][column].values
+        dist = wasserstein_distance(global_values, fold_values)
+        dists.append(dist)
 
+    return np.mean(dists)
+
+
+def plot_utilized_histograms(df, column='utilized', fold_column='fold', n_splits=3, bins=30):
+    """
+    Plots histograms of the `column` for each fold.
     
+    Parameters:
+    - df: DataFrame with `column` and `fold_column`.
+    - column: Name of the numeric variable to plot.
+    - fold_column: Name of the column indicating fold assignment.
+    - n_splits: Number of folds.
+    - bins: Number of bins for the histogram.
+    """
+    plt.figure(figsize=(15, 4))
+
+    for fold in range(n_splits):
+        plt.subplot(1, n_splits, fold + 1)
+        subset = df[df[fold_column] == fold][column]
+        plt.hist(subset, bins=bins, color='steelblue', edgecolor='black', alpha=0.7)
+        plt.title(f'Fold {fold} (n={len(subset)})')
+        plt.xlabel(column)
+        plt.ylabel('Count')
+
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_utilized_histograms_seaborn(df, column='utilized', fold_column='fold', bins=30):
+    """
+    Uses Seaborn to plot histograms of `column` for each fold in separate subplots.
+    """
+    g = sns.FacetGrid(df, col=fold_column, col_wrap=3, sharex=True, sharey=True, height=4)
+    g.map_dataframe(sns.histplot, x=column, bins=bins, kde=True, color="cornflowerblue", edgecolor="black")
+    g.set_titles("Fold {col_name}")
+    g.set_axis_labels(column, "Count")
+    g.fig.suptitle(f"Distribution of '{column}' in Each Fold", fontsize=16)
+    plt.tight_layout()
+    plt.subplots_adjust(top=0.85)
+    plt.show()
+
+
+def assign_stratified_folds_optimized(annotation_csv_path, output_csv_path=None,
+                                      n_splits=3, n_trials=500, random_state=5032001):
+    """
+    Optimizes stratified K-fold assignment by minimizing Wasserstein distance in 'utilized' column.
+    """
+
+    df_orig = pd.read_csv(annotation_csv_path)
+    df_orig = df_orig[df_orig['exported'] == 1].drop(columns=['exported']).reset_index(drop=True)
+
+    if 'recurrence' not in df_orig.columns or 'utilized' not in df_orig.columns:
+        raise ValueError("The CSV must contain 'recurrence' and 'utilized' columns.")
+
+    best_df = None
+    best_wd = float('inf')
+
+    rng = np.random.RandomState(random_state)
+
+    for trial in range(n_trials):
+        df = df_orig.copy()
+        skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=rng.randint(0, 1e9))
+        df['fold'] = -1
+
+        for fold_number, (_, val_idx) in enumerate(skf.split(df, df['recurrence'])):
+            df.loc[val_idx, 'fold'] = fold_number
+
+        wd_dist = compute_wasserstein_distance_across_folds(df, 'utilized', n_splits)
+
+        if wd_dist < best_wd:
+            best_wd = wd_dist
+            best_df = df
+            print(f"Trial {trial + 1}/{n_trials}: mean Wasserstein distance = {wd_dist:.4f}")
+            #plot_utilized_histograms(best_df, column='utilized', fold_column='fold', n_splits=3, bins=30)
+    plot_utilized_histograms_seaborn(best_df, column='utilized', fold_column='fold', bins=30)
+    if output_csv_path:
+        best_df.to_csv(output_csv_path, index=False)
+
+    return best_df
+
+
+def identify_non_paired_ids(annotations_merged_csv_path, hdf_exported_csv_path):
+
+    annotations_df = pd.read_csv(annotations_merged_csv_path)
+    hdf_df = pd.read_csv(hdf_exported_csv_path)
+
+    # Specify the column containing IDs
+    id_column = "EnSiteID"  # change this if your column is named differently
+
+    # Get sets of unique IDs
+    ann_ids = set(annotations_df[id_column])
+    hdf_ids = set(hdf_df[id_column])
+
+    # Symmetric difference: IDs in either file1 or file2 but not both
+    exclusive_ids = hdf_ids - ann_ids
+
+    print(f"Unique IDs not in annotation file: {exclusive_ids}")
+
+    duplicated_ids = annotations_df['EnSiteID'][annotations_df['EnSiteID'].duplicated()].unique()
+    print(f"{duplicated_ids} are duplicated in the annotations file.")
+
+
+if __name__ == "__main__":
+    annotations_merged = "/media/guest/DataStorage/WaveMap/WaveMapEnsiteAnnotations/annotations_merged.csv"
+    exported_hdfs = "/media/guest/DataStorage/WaveMap/WaveMapEnsiteAnnotations/hdf_dataset_overview_overall.csv"
+    annotations_export = "/media/guest/DataStorage/WaveMap/WaveMapEnsiteAnnotations/annotations_exported_complete.csv"    #annotations_export = "/media/guest/DataStorage/WaveMap/WaveMapEnsiteAnnotations/annotations_export.csv"
+    annotations_complete = "/media/guest/DataStorage/WaveMap/WaveMapEnsiteAnnotations/annotations_complete.csv"
+    
+    exported_df = mark_exported(annotations_merged, exported_hdfs, annotations_export)
+
+    annotations_complete_df = assign_stratified_folds_optimized(annotations_export, output_csv_path=annotations_complete,
+                                                               n_splits=3, n_trials=2000, random_state=5032001)
+    
+    print(annotations_complete_df.head())
+
+    identify_non_paired_ids(annotations_complete, exported_hdfs)

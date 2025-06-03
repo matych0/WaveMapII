@@ -6,11 +6,12 @@ from torchvision import transforms
 from transformers import get_cosine_schedule_with_warmup
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
+from torch.nn.utils import clip_grad_norm_
 from src.dataset.dataset import HDFDataset, ValidationDataset
 from src.dataset.collate import collate_padding, collate_validation
 from model.cox_mil_resnet import CoxAttentionResnet
 from losses.loss import CoxLoss
-from src.transforms.transforms import (BaseTransform, RandomAmplifier, RandomGaussian,
+from src.transforms.transforms import (BaseTransform, RandomAmplifier, RandomGaussian, RandomPolarity,
                                        RandomTemporalScale, RandomShift, TanhNormalize)
 import datetime
 import numpy as np
@@ -34,7 +35,8 @@ DOWNSAMPLING_FACTOR = 2
 NORMALIZATION = "BatchN2D"
 FILTER_UTILIZED = True
 SEGMENT_MS = 100
-OVERSAMPLING_FACTOR = 4
+OVERSAMPLING_FACTOR = None
+GRAD_CLIP = 1.0
 
 
 def get_predictions(loader, model):
@@ -71,25 +73,16 @@ def set_seed(seed):
 def cross_val(folds=3):
     """Cross-validation function to evaluate the model."""
 
-    set_seed(SEED)
 
     # Hyperparameters to optimize
     projection_nodes = 128
     attention_nodes = 64
-    dropout = 0.5
-    cox_regularization = 0.01
+    dropout = 0.25
+    cox_regularization = 0.1
     learning_rate = 0.001
-    weight_decay = 0.001
+    weight_decay = 0.01
     batch_size =  24
     num_epochs =  413 #91
-
-    # Transformations
-    temporal_scale = RandomTemporalScale(probability=0.2, limit=0.2, shuffle=True, random_seed=SEED)
-    amplifier = RandomAmplifier(probability=0.2, limit=0.2, shuffle=True, random_seed=SEED)
-    noise = RandomGaussian(probability=0.2, low_limit=10, high_limit=30, shuffle=True, random_seed=SEED)
-    shift = RandomShift(probability=0.5, shift_range=0.3, shuffle=True, random_seed=SEED)
-    tanh_normalize = TanhNormalize(factor=5)
-    shuffle = BaseTransform(shuffle=True, random_seed=SEED)
 
 
     # Define parameters for LocalActivationResNet
@@ -120,7 +113,19 @@ def cross_val(folds=3):
 
         print(f"Fold {fold}/{folds}")
 
+        set_seed(SEED)
+
+        # Transformations
+        polarity = RandomPolarity(probability=0.5, shuffle=True, random_seed=SEED)
+        temporal_scale = RandomTemporalScale(probability=0.5, limit=0.2, shuffle=True, random_seed=SEED)
+        amplifier = RandomAmplifier(probability=0.5, limit=0.5, shuffle=True, random_seed=SEED)
+        noise = RandomGaussian(probability=0.3, low_limit=10, high_limit=30, shuffle=True, random_seed=SEED)
+        shift = RandomShift(probability=0.5, shift_range=0.3, shuffle=True, random_seed=SEED)
+        tanh_normalize = TanhNormalize(factor=5)
+        shuffle = BaseTransform(shuffle=True, random_seed=SEED)
+
         train_transform = transforms.Compose([
+            polarity,
             amplifier,
             temporal_scale,
             shift,
@@ -194,14 +199,14 @@ def cross_val(folds=3):
         train_cindex_dataloader = DataLoader(train_cindex_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_validation)
 
         # Create a directory for TensorBoard logs
-        log_dir = f"runs/cross_val_trial_27/fold_{fold}"
+        log_dir = f"runs/cross_val_regularization/fold_{fold}"
         writer = SummaryWriter(log_dir)
 
         # Model, Loss, Optimizer
         model = CoxAttentionResnet(resnet_params, amil_params)
         loss_fn = CoxLoss()
         cindex = ConcordanceIndex()
-        optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+        optimizer = optim.AdamW(model.parameters(), lr=learning_rate, betas=(0.95, 0.9999), weight_decay=weight_decay)
         scheduler = get_cosine_schedule_with_warmup(
             optimizer,
             num_warmup_steps=num_epochs // 10,
@@ -220,6 +225,7 @@ def cross_val(folds=3):
 
                 optimizer.zero_grad()
                 loss.backward()
+                clip_grad_norm_(model.parameters(), max_norm=GRAD_CLIP)
                 optimizer.step()
                 total_train_loss += loss.item()
 
@@ -274,7 +280,7 @@ def cross_val(folds=3):
 
         writer.close()
 
-        torch.save(model.state_dict(), f"/home/guest/lib/data/saved_models/cross_val_trial_27_fold{fold}.pth")
+        #torch.save(model.state_dict(), f"/home/guest/lib/data/saved_models/cross_val_trial_27_fold{fold}.pth")
 
 
 if __name__ == "__main__":
