@@ -6,16 +6,15 @@ from torchvision import transforms
 from transformers import get_cosine_schedule_with_warmup
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
-from src.dataset.dataset import HDFDataset, ValidationDataset
-from src.dataset.collate import collate_padding, collate_validation, collate_padding_merged
+from src.dataset.dataset import EGMDataset
+from src.dataset.collate import collate_padding
 from model.cox_mil_resnet import CoxAttentionResnet
 from losses.loss import CoxLoss
 from src.transforms.transforms import (BaseTransform, RandomAmplifier, RandomGaussian,
-                                       RandomTemporalScale, RandomShift, TanhNormalize)
-import datetime
+                                       RandomTemporalScale, RandomShift, TanhNormalize,
+                                       RandomPolarity)
 import numpy as np
 from torchsurv.metrics.cindex import ConcordanceIndex
-from statistics import mean
 
 
 #Set seed
@@ -80,10 +79,11 @@ def cross_val(folds=3):
     cox_regularization = 0.001
     learning_rate = 0.001
     weight_decay = 0.001
-    batch_size =  20
-    num_epochs =  400 #91
+    batch_size =  12
+    num_epochs =  180 #91
 
     # Transformations
+    polarity = RandomPolarity(probability=0.5, shuffle=True, random_seed=SEED)
     temporal_scale = RandomTemporalScale(probability=0.2, limit=0.2, shuffle=True, random_seed=SEED)
     amplifier = RandomAmplifier(probability=0.2, limit=0.2, shuffle=True, random_seed=SEED)
     noise = RandomGaussian(probability=0.2, low_limit=10, high_limit=30, shuffle=True, random_seed=SEED)
@@ -120,6 +120,7 @@ def cross_val(folds=3):
         print(f"Fold {fold}/{folds}")
 
         train_transform = transforms.Compose([
+            polarity,
             amplifier,
             temporal_scale,
             shift,
@@ -133,64 +134,40 @@ def cross_val(folds=3):
         ])
 
         # Dataset & Dataloader
-        train_dataset = HDFDataset(
+        train_dataset = EGMDataset(
             annotations_file=ANNOTATION_DIR,
             data_dir=DATA_DIR,
-            train=True,
-            transform=train_transform,
             startswith="LA",
+            training=True,
+            transform=train_transform,
             readjustonce=True,
             segment_ms=SEGMENT_MS,
             filter_utilized=FILTER_UTILIZED,
             #oversampling_factor=OVERSAMPLING_FACTOR,
             cross_val_fold=fold,
+            random_seed=SEED,
         )
 
-        val_loss_dataset = HDFDataset(
+        val_dataset = EGMDataset(
             annotations_file=ANNOTATION_DIR,
             data_dir=DATA_DIR,
-            train=False,
-            transform=train_transform,
             startswith="LA",
+            training=False,
+            transform=train_transform,
             readjustonce=True,
             segment_ms=SEGMENT_MS,
             filter_utilized=FILTER_UTILIZED,
             #oversampling_factor=OVERSAMPLING_FACTOR,
             cross_val_fold=fold,
-        )
-
-        val_dataset = ValidationDataset(
-            annotations_file=ANNOTATION_DIR,
-            data_dir=DATA_DIR,
-            eval_data=True,
-            transform=val_transform,
-            startswith="LA",
-            readjustonce=True,
-            segment_ms=SEGMENT_MS,
-            filter_utilized=FILTER_UTILIZED,
-            cross_val_fold=fold,
-        )
-
-        train_cindex_dataset = ValidationDataset(
-            annotations_file=ANNOTATION_DIR,
-            data_dir=DATA_DIR,
-            eval_data=False,
-            transform=val_transform,
-            startswith="LA",
-            readjustonce=True,
-            segment_ms=SEGMENT_MS,
-            filter_utilized=FILTER_UTILIZED,
-            cross_val_fold=fold,
+            random_seed=SEED,
         )
 
 
         # Create DataLoader
         generator = torch.Generator()
         generator.manual_seed(SEED)
-        train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, generator=generator, collate_fn=collate_padding_merged)
-        val_dataloader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_validation)
-        val_loss_dataloader = DataLoader(val_loss_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_padding_merged)
-        train_cindex_dataloader = DataLoader(train_cindex_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_validation)
+        train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, generator=generator, collate_fn=collate_padding)
+        val_dataloader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_padding)
 
         # Create a directory for TensorBoard logs
         log_dir = f"runs/cross_val_merged_tensors/fold_{fold}"

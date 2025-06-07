@@ -78,7 +78,7 @@ def segment_signals(signals, indices, segment_ms, fs):
     return segments
 
 # Main processing function
-def scan_hdf_directories(base_dir: str) -> pd.DataFrame:
+def scan_hdf_directories(base_dir: str, output_dir=None) -> pd.DataFrame:
     rows = []
 
     for root, dirs, files in os.walk(base_dir):
@@ -117,7 +117,8 @@ def scan_hdf_directories(base_dir: str) -> pd.DataFrame:
     print(f"Min: {min_num_instances}, Max: {max_num_instances}, Mean: {mean_num_instances}")
     
     # Save the DataFrame to a CSV file
-    df.to_csv("/media/guest/DataStorage/WaveMap/WaveMapEnsiteAnnotations/hdf_dataset_overview_overall.csv", index=False)
+    if output_dir is not None:
+        df.to_csv(output_dir, index=False)
 
     return df
 
@@ -128,18 +129,30 @@ def plot_instances_histogram(df: pd.DataFrame, bins=20):
 
     #palette = sns.color_palette(, as_cmap=True)
 
-    fig, ax = plt.subplots(figsize=(8, 6))
+    fig, ax = plt.subplots(figsize=(6, 4))
     sns.histplot(
         ax=ax,
         data=df,
         x="num_instances", 
         hue="legend",
         bins=bins, 
-        palette="light:b", 
+        palette="Blues", 
         edgecolor="black",
+        multiple="dodge",
         alpha=0.7,
         log_scale=True,
+        #kde=True,
         )
+    
+    ticks = [500, 1000, 2000, 5000, 10000, 20000]
+    ax.set_xticks(ticks)
+    ax.set_xticklabels([str(tick) for tick in ticks])
+
+    ax.set_xlabel("Number of electrograms [-]", fontsize=10)
+    ax.set_ylabel("Frequency [-]", fontsize=10)
+
+    ax.legend(title="", labels=["utilized electrograms", "original electrograms"])
+
     plt.show()
 
 def plot_histogram(all_traces, bins=100):
@@ -274,6 +287,8 @@ def compute_mean_std_from_hdf(base_dir: str, max_files: int = 20, segment_ms: in
 if __name__ == "__main__":
     # Example usage
     base_directory = "/media/guest/DataStorage/WaveMap/HDF5"  # Replace with your directory path
+    output_directory = "/media/guest/DataStorage/WaveMap/WaveMapEnsiteAnnotations/hdf_dataset_overview_overall.csv"
+    
     df = scan_hdf_directories(base_directory)
     print(df.head())
 
@@ -281,7 +296,7 @@ if __name__ == "__main__":
     """ all_traces = compute_mean_std_from_hdf(base_directory, max_files=150, segment_ms=100)
     plot_histogram(all_traces, bins=100) """
 
-    #print("Done")
-
+    #compute_mean_std_from_hdf(base_directory, max_files=250, segment_ms=100)
+    plot_instances_histogram(df, bins=25)
 
 

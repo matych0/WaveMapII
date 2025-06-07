@@ -9,7 +9,7 @@
             "name": "Python: Run Module",
             "type": "debugpy",
             "request": "launch",
-            "module": "scripts.cindex_debug",
+            "module": "scripts.cross_validation",
             "console": "integratedTerminal"
           }
     ]

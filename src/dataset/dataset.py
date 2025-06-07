@@ -81,19 +81,6 @@ def segment_signals(signals, indices, segment_ms, fs):
     return segments
 
 
-def segmentation(segment_ms, traces, fs):
-    """
-    Segments traces into fixed-length segments.
-    """
-    central_sample = traces.shape[-1] // 2
-    total_samples = traces.shape[1]
-    segment_samples = np.round((segment_ms/1000)*fs)
-    left_window = segment_samples//2
-    right_window = segment_samples - left_window
-    start, end = (int(max(central_sample - left_window, 0)), int(min(central_sample + right_window, total_samples)))
-    return traces[:, start:end] 
-
-
 def collect_filepaths_and_maps(data, data_dir, startswith, readjustonce, segment_ms, filter_utilized):
     filepaths, maps, = list(), list()
     for study_id in data["eid"].values:
@@ -293,19 +280,106 @@ class ValidationDataset(Dataset):
         traces = torch.from_numpy(traces)
 
         return duration, event, traces
+    
+
+class EGMDataset(Dataset):
+    def __init__(
+            self,
+            annotations_file: os.PathLike,
+            data_dir: os.PathLike,
+			startswith: str = "",  
+            training: bool = True,
+            fold: int = 0,
+            readjustonce: bool = True,  
+            oversampling_factor: int = None,        
+            num_traces: int = None,
+            segment_ms: int = None,
+            filter_utilized: bool = False, 
+            transform = None,  
+            random_seed: int = 3052001,
+            num_controls: int = 1,    
+            ):
+        
+
+        self.transform = transform
+        self.readjustonce = readjustonce
+        self.num_traces = num_traces
+        self.segment_ms = segment_ms
+        self.filter_utilized = filter_utilized  
+        
+        # set the random seed for reproducibility
+        self.np_rng = np.random.default_rng(random_seed)
+
+        # read the annotations file
+        self.annotations = pd.read_csv(annotations_file)
+        # get training/validation studies only
+        if training == True:
+            self.annotations = self.annotations[self.annotations["fold"] != fold]
+        else:
+            self.annotations = self.annotations[self.annotations["fold"] == fold]
+    
+        # Recurrence cases oversampling 
+        if oversampling_factor:
+            self.reccurence = self.annotations[self.annotations['reccurence'] == 1]
+            self.oversampled = pd.concat([self.reccurence] * (oversampling_factor - 1), ignore_index=True)
+            self.annotations = pd.concat([self.annotations, self.oversampled], ignore_index=True)
+            self.annotations.reset_index(drop=True, inplace=True)
+
+        # read the HDF files or collect filepaths
+        self.maps = collect_filepaths_and_maps(self.annotations, data_dir, startswith, readjustonce, segment_ms, filter_utilized)
+                    
+
+    def __len__(self):
+        return len(self.annotations)
+
+    def __getitem__(self, idx):
+
+        duration = self.annotations.at[idx, 'days_to_event']
+        event = self.annotations.at[idx, 'reccurence']
+
+        if self.readjustonce:
+            traces = self.maps[idx]
+
+        else:
+            traces, fs, metadata = read_hdf(self.maps[idx], return_fs=True, metadata_keys=["rov LAT", "end time", "utilized"])
+            utilized, t_amp, t_last = metadata["utilized"], metadata["rov LAT"], metadata["end time"]
+            
+            if self.filter_utilized:
+                traces = traces[utilized, :]
+                t_amp = t_amp[utilized]
+                t_last = t_last[utilized]
+
+            if self.segment_ms:
+                indices = compute_amplitude_indices(t_amp, t_last, fs, traces.shape[1])
+                traces = segment_signals(traces, indices, self.segment_ms, fs)
+        
+        if self.num_traces:
+            self.np_rng.shuffle(traces)
+            traces = traces[:self.num_traces]
+
+        if self.transform:
+            traces = self.transform(traces)
+
+        patient = {
+            "traces": torch.from_numpy(traces),
+            "duration": torch.tensor(duration, dtype=torch.float32),
+            "event": torch.tensor(event, dtype=torch.bool), 
+        }
+        
+        return patient
 
 
 if __name__ == "__main__":
-    from collate import collate_validation
-    from collate import collate_padding
+    from collate import collate_padding, collate_validation, collate_padding_two_tensors, collate_padding_merged
 
-    annotation_filepath = "/media/guest/DataStorage/WaveMap/HDF5/annotations_train.csv"
+    annotation_filepath = "/media/guest/DataStorage/WaveMap/HDF5/annotations_complete.csv"
     dataset_folderpath = "/media/guest/DataStorage/WaveMap/HDF5"
 
-    training_data = HDFDataset(
+    training_data = EGMDataset(
         annotations_file=annotation_filepath,
         data_dir=dataset_folderpath,
         train=True,
+        cross_val_fold=0,
         transform=None,            
         startswith="LA",
         readjustonce=False, 
@@ -315,17 +389,15 @@ if __name__ == "__main__":
         oversampling_factor=4,          
     )
     
-    train_dataloader = DataLoader(training_data, batch_size=5, shuffle=True, collate_fn=collate_padding)
-    
+    train_dataloader = DataLoader(training_data, batch_size=10, shuffle=True, collate_fn=collate_padding_merged)
     
     # for i in range(20):
-    case, control, case_mask, control_mask = next(iter(train_dataloader)) 
+    traces, mask = next(iter(train_dataloader)) 
     
-    print(f"Case shape: {case.shape}")
+    print(f"Traces shape: {traces.shape}")
     
-    print(f"Control shape: {control.shape}")
 
-    validation_data = ValidationDataset(
+    """ validation_data = ValidationDataset(
         annotations_file=annotation_filepath,
         data_dir=dataset_folderpath,
         transform=None,            
@@ -342,7 +414,7 @@ if __name__ == "__main__":
     duration, event, traces, traces_masks = next(iter(validation_dataloader))
     print(f"Durations: {duration}")
     print(f"Events: {event}")
-    print(f"Traces shape: {traces.shape}")
+    print(f"Traces shape: {traces.shape}") """
 
 
 

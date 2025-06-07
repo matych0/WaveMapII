@@ -61,7 +61,6 @@ def cox_cc_loss(g_case: Tensor, g_control: Tensor, shrink : float = 0.,
     return torch.mean(loss) + shrink_zero.abs()
 
 
-
 class CoxCCLoss(torch.nn.Module):
     """Torch loss function for the Cox case-control models.
 
@@ -91,13 +90,13 @@ class CoxCCLoss(torch.nn.Module):
     def forward(self, g_case: Tensor, g_control: TupleTree) -> Tensor:
         single = False
         if hasattr(g_control, 'shape'):
-             if g_case.shape == g_control.shape:
+            if g_case.shape == g_control.shape:
                 return cox_cc_loss_single_ctrl(g_case, g_control, self.shrink)
         elif (len(g_control) == 1) and (g_control[0].shape == g_case.shape):
                 return cox_cc_loss_single_ctrl(g_case, g_control[0], self.shrink)
         return cox_cc_loss(g_case, g_control, self.shrink, self.clamp)
 
-    
+
 if __name__ == "__main__":
     g_case = torch.randn([8])
     g_control = torch.randn([4, 8])

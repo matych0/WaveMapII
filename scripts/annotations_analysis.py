@@ -3,12 +3,15 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import numpy as np
 
-def plot_time_histogram(path, bins=20):
+def plot_time_histogram(path, bins=20, shift=None):
 
     df = pd.read_csv(path)
 
     fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True)
     fig.subplots_adjust(hspace=0.05)
+
+    if shift is not None:
+        df.loc[df["reccurence"] == 0, 'days_to_event'] = df.loc[df["reccurence"] == 0, 'days_to_event'] + shift
 
     sns.histplot(
         ax=ax1,
@@ -43,7 +46,7 @@ def plot_time_histogram(path, bins=20):
     ax1.legend(title="", labels=["recurrent", "censored"])
     ax2.legend_.remove()
     
-    ax1.set_ylim(101.5, 112)  # outliers only
+    ax1.set_ylim(165.5, 176)  # outliers only
     ax2.set_ylim(0, 10.5)  # most of the data
 
     ax1.tick_params(
@@ -117,8 +120,8 @@ def plot_with_broken_axis(path, bins=20):
 
 if __name__ == "__main__":
 
-    ANNOTATION_DIR = "/media/guest/DataStorage/WaveMap/HDF5/annotations_train.csv"
+    ANNOTATION_DIR = "/media/guest/DataStorage/WaveMap/HDF5/annotations_complete.csv"
 
-    plot_time_histogram(ANNOTATION_DIR, bins=20)
+    plot_time_histogram(ANNOTATION_DIR, bins=25)
 
     #plot_with_broken_axis(ANNOTATION_DIR, bins=20)

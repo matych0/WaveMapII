@@ -177,10 +177,10 @@ def plot_utilized_histograms(df, column='utilized', fold_column='fold', n_splits
     - n_splits: Number of folds.
     - bins: Number of bins for the histogram.
     """
-    plt.figure(figsize=(15, 4))
+    plt.figure(figsize=(4, 16))
 
-    for fold in range(n_splits):
-        plt.subplot(1, n_splits, fold + 1)
+    for fold in range(n_splits + 1):
+        plt.subplot(1, n_splits + 1, fold + 1)
         subset = df[df[fold_column] == fold][column]
         plt.hist(subset, bins=bins, color='steelblue', edgecolor='black', alpha=0.7)
         plt.title(f'Fold {fold} (n={len(subset)})')
@@ -195,11 +195,10 @@ def plot_utilized_histograms_seaborn(df, column='utilized', fold_column='fold', 
     """
     Uses Seaborn to plot histograms of `column` for each fold in separate subplots.
     """
-    g = sns.FacetGrid(df, col=fold_column, col_wrap=3, sharex=True, sharey=True, height=4)
+    g = sns.FacetGrid(df, col=fold_column, col_wrap=1, sharex=True, sharey=True, height=3, aspect=1.5)
     g.map_dataframe(sns.histplot, x=column, bins=bins, kde=True, color="cornflowerblue", edgecolor="black")
     g.set_titles("Fold {col_name}")
-    g.set_axis_labels(column, "Count")
-    g.fig.suptitle(f"Distribution of '{column}' in Each Fold", fontsize=16)
+    g.set_axis_labels("Number of electrograms [-]", "Frequency [-]")
     plt.tight_layout()
     plt.subplots_adjust(top=0.85)
     plt.show()
@@ -271,11 +270,11 @@ if __name__ == "__main__":
     annotations_export = "/media/guest/DataStorage/WaveMap/WaveMapEnsiteAnnotations/annotations_exported_complete.csv"    #annotations_export = "/media/guest/DataStorage/WaveMap/WaveMapEnsiteAnnotations/annotations_export.csv"
     annotations_complete = "/media/guest/DataStorage/WaveMap/WaveMapEnsiteAnnotations/annotations_complete.csv"
     
-    exported_df = mark_exported(annotations_merged, exported_hdfs, annotations_export)
+    #exported_df = mark_exported(annotations_merged, exported_hdfs, annotations_export)
 
-    annotations_complete_df = assign_stratified_folds_optimized(annotations_export, output_csv_path=annotations_complete,
-                                                               n_splits=3, n_trials=2000, random_state=5032001)
+    """ annotations_complete_df = assign_stratified_folds_optimized(annotations_export,
+                                                               n_splits=3, 
+                                                               n_trials=2000, 
+                                                               random_state=5032001) """
     
-    print(annotations_complete_df.head())
-
-    identify_non_paired_ids(annotations_complete, exported_hdfs)
+    plot_utilized_histograms_seaborn(pd.read_csv(annotations_complete), column='utilized', fold_column='fold', bins=30)
