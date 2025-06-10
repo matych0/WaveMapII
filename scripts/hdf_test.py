@@ -156,7 +156,11 @@ def plot_instances_histogram(df: pd.DataFrame, bins=20):
     plt.show()
 
 def plot_histogram(all_traces, bins=100):
+
+    np.random.shuffle(all_traces)
     
+    all_traces = all_traces[:10000,:]  # Limit to 10,000 traces for performance
+    # Shuffle the traces to ensure randomness
     row_maxes = torch.max(all_traces, dim=1).values  # shape: (num_rows,)
     row_mins = torch.min(all_traces, dim=1).values   # shape: (num_rows,)
 
@@ -164,7 +168,7 @@ def plot_histogram(all_traces, bins=100):
     max_vals = row_maxes.numpy()
     min_vals = row_mins.numpy()
 
-    # Plot histograms
+    """ # Plot histograms
     fig, axes = plt.subplots(1, 2, figsize=(12, 5))
 
     # Histogram for max values
@@ -180,7 +184,7 @@ def plot_histogram(all_traces, bins=100):
     axes[1].set_ylabel('Frequency')
 
     plt.tight_layout()
-    plt.show()
+    plt.show() """
 
 
     # Create a DataFrame for seaborn
@@ -206,11 +210,25 @@ def plot_histogram(all_traces, bins=100):
 
     # Plot joint histogram
     plt.figure(figsize=(4, 4))
-    #sns.jointplot(data=df, x='Positive amplitude [mV]', y='Absolute value of negative amplitude [mV]', kind='hist', bins=100, marginal_kws=dict(bins=50))
-    sns.jointplot(data=df, x='Positive amplitude [mV]', y='Absolute value of negative amplitude [mV]',marker="+", s=100, marginal_kws=dict(bins=50, fill=False),)
+    g = sns.jointplot(data=df, 
+                  x='Positive amplitude [mV]', 
+                  y='Absolute value of negative amplitude [mV]', 
+                  marker="+",
+                  marginal_kws=dict(bins=25, fill=False))
 
-    plt.xlabel('Positive amplitude [mV]', fontsize=10)
-    plt.ylabel('Absolute value of negative amplitude [mV]', fontsize=10)
+    # Overlay a KDE plot on the joint (central) axis
+    #g.plot_joint(sns.kdeplot, color="r", zorder=1, levels=6)
+
+    # Set labels for the x and y axes
+    # You need to access the axes objects directly for setting labels for a jointplot
+    g.set_axis_labels('Positive amplitude [-]', 
+                    'Absolute value of negative amplitude [-]', 
+                    fontsize=10) # Increased fontsize slightly for readability
+
+    # You can also set a title for the entire figure if needed
+    # plt.suptitle('Joint Distribution of Amplitudes', y=1.02, fontsize=14) 
+
+    plt.tight_layout() # Adjusts plot parameters for a tight layout
     plt.show()
 
 
@@ -247,7 +265,7 @@ def compute_mean_std_from_hdf(base_dir: str, max_files: int = 20, segment_ms: in
         return None
 
     all_traces = torch.cat(trace_list, dim=0)  # (N_total, 2035)
-    #all_traces = torch.tanh(all_traces / 5)
+    all_traces = torch.tanh(all_traces / 5)
     mean = all_traces.mean()
     std = all_traces.std()
     min_val = all_traces.min()
@@ -293,10 +311,10 @@ if __name__ == "__main__":
     print(df.head())
 
     #plot_instances_histogram(df, bins=20)
-    """ all_traces = compute_mean_std_from_hdf(base_directory, max_files=150, segment_ms=100)
-    plot_histogram(all_traces, bins=100) """
+    all_traces = compute_mean_std_from_hdf(base_directory, max_files=250, segment_ms=100)
+    plot_histogram(all_traces, bins=100)
 
     #compute_mean_std_from_hdf(base_directory, max_files=250, segment_ms=100)
-    plot_instances_histogram(df, bins=25)
+    #plot_histogram(df, bins=25)
 
 

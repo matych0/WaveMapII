@@ -193,7 +193,7 @@ def cross_val(folds=3):
         train_cindex_dataloader = DataLoader(train_cindex_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_validation)
 
         # Create a directory for TensorBoard logs
-        log_dir = f"runs/cross_val_merged_tensors/fold_{fold}"
+        log_dir = f"runs/cross_val_merged_tensors_2/fold_{fold}"
         writer = SummaryWriter(log_dir)
 
         # Model, Loss, Optimizer
@@ -281,7 +281,7 @@ def cross_val(folds=3):
 
         writer.close()
 
-        torch.save(model.state_dict(), f"/home/guest/lib/data/saved_models/cross_val_merged_fold_{fold}.pth")
+        torch.save(model.state_dict(), f"/home/guest/lib/data/saved_models/cross_val_merged_2_fold_{fold}.pth")
 
 
 if __name__ == "__main__":
