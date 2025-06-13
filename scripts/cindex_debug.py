@@ -3,7 +3,7 @@ import torch
 from src.transforms.transforms import (BaseTransform, RandomAmplifier, RandomGaussian, RandomPolarity,
                                        RandomTemporalScale, RandomShift, TanhNormalize)
 from torchvision import transforms
-from src.dataset.collate import collate_padding, collate_validation
+from src.dataset.collate import collate_padding_merged, collate_validation
 from model.cox_mil_resnet import CoxAttentionResnet
 from torchsurv.metrics.cindex import ConcordanceIndex
 from torch.utils.data import DataLoader
@@ -19,6 +19,8 @@ def get_predictions(loader, model):
     all_risks = []
     all_durations = []
     all_events = []
+    all_attentions = []
+    all_traces = []
 
     model.eval()
     with torch.no_grad():
@@ -28,27 +30,106 @@ def get_predictions(loader, model):
             durations = torch.tensor(durations, dtype=torch.float32)
             events = torch.tensor(events, dtype=torch.bool)
 
-            risks, _ = model(traces, traces_masks)
+            risks, attentions = model(traces, traces_masks)
 
-            all_risks.append(risks.view(-1))        # Instead of .squeeze()
-            all_durations.append(durations.view(-1))
-            all_events.append(events.view(-1))
+            # Get rid of the padded traces and attentions
+            #traces = traces[traces_masks]  
+            #attentions = attentions[traces_masks]
 
-    risks_tensor = torch.cat(all_risks).cpu()
-    durations_tensor = torch.cat(all_durations).cpu()
-    events_tensor = torch.cat(all_events).cpu()
+            all_risks.extend([float(risk) for risk in risks])       
+            all_durations.extend([int(duration) for duration in durations])
+            all_events.extend([int(event) for event in events])
+            all_attentions.extend([np.array(attention_array.squeeze().cpu()) for attention_array in attentions])
+            all_traces.extend([trace.squeeze().cpu().numpy() for trace in traces])
+            
+    inference_df = pd.DataFrame({
+        "risk": all_risks,
+        "days_to_event": all_durations,
+        "recurrence": all_events,
+        "attentions": all_attentions,
+        "traces": all_traces
+    })
 
-    return risks_tensor, durations_tensor, events_tensor
+    risks_tensor = torch.tensor(all_risks, dtype=torch.float32).cpu()
+    durations_tensor = torch.tensor(all_durations, dtype=torch.float32).cpu()
+    events_tensor = torch.tensor(all_events, dtype=torch.bool).cpu()
 
-def plot_risks(preds, events):
-    preds = preds.numpy()
-    events = events.numpy()
-    df = pd.DataFrame({'Risk': preds, 'Event': events})
+    return risks_tensor, durations_tensor, events_tensor, inference_df
 
-    sns.histplot(data=df, x="Risk", hue="Event", bins = 10, multiple="stack", palette="vlag")
+def plot_risks(inference_df):
+
+    sns.histplot(data=inference_df, x="risk", hue="recurrence", bins=10, multiple="stack", palette="vlag")
     plt.show()
 
 
+def plot_attention(inference_df, bins=30):
+    if isinstance(inference_df, pd.DataFrame):
+        attentions = np.concatenate(inference_df["attentions"].values, axis=0)
+    elif isinstance(inference_df, pd.Series):
+        attentions = inference_df["attentions"]
+    g = sns.histplot(data=attentions, bins=bins)
+    g.set_yscale("log")
+    plt.title("Attention Weights Distribution")
+    plt.xlabel("Attention Weight")
+    plt.ylabel("Frequency")
+    plt.show()
+
+
+def plot_low_high_risk(inference_df, n_patients=10):
+    low_risk_df = inference_df.nsmallest(n_patients, "risk")
+    high_risk_df = inference_df.nlargest(n_patients, "risk")
+    low_risk_attentions = np.concatenate(low_risk_df["attentions"].values, axis=0)
+    high_risk_attentions = np.concatenate(high_risk_df["attentions"].values, axis=0)
+
+    attentions_df = pd.DataFrame({
+    'attention': np.concatenate([low_risk_attentions, high_risk_attentions]),
+    'class': ['low risk'] * len(low_risk_attentions) + ['high risk'] * len(high_risk_attentions)
+    })
+
+    g = sns.histplot(data=attentions_df, x="attention", hue="class", bins=30, multiple="dodge", palette="vlag")
+    g.set_yscale("log")
+    plt.xlabel("Attention Weight")
+    plt.ylabel("Frequency")
+    plt.show()
+
+
+def get_significant_traces(inference_df, threshold=0.01):
+    """
+    Returns traces with attention weights above a certain threshold.
+    """
+    all_attentions = np.concatenate(inference_df["attentions"].values, axis=0)
+    all_traces = np.concatenate(inference_df["traces"].values, axis=0)
+    significant_indices = np.where(all_attentions > threshold)[0]
+    significant_traces = all_traces[significant_indices]
+    significant_attentions = all_attentions[significant_indices]
+
+    return significant_traces, significant_attentions
+
+def plot_random_signals(signals, attention_weights):
+    n = signals.shape[0]
+    random_indices = np.random.choice(n, size=10, replace=False)
+
+    # Select those 10 signals
+    selected_signals = signals[random_indices]
+    selected_attention_weights = attention_weights[random_indices]
+
+    # Plot in a 5x2 grid
+    fig, axes = plt.subplots(5, 2, figsize=(12, 10))
+    axes = axes.flatten()
+
+    for i in range(10):
+        axes[i].plot(selected_signals[i])
+        axes[i].set_title(f"Signal {random_indices[i]}, Attention: {selected_attention_weights[i]:.4f}")
+        axes[i].set_xlabel("Time")
+        axes[i].set_ylabel("Amplitude")
+
+    plt.tight_layout()
+    plt.show()
+
+
+
+def plot_attentions(attentions):
+    pass
 
 if __name__ == "__main__":
     ANNOTATION_DIR = "/media/guest/DataStorage/WaveMap/HDF5/annotations_complete.csv"
@@ -68,9 +149,9 @@ if __name__ == "__main__":
     GRAD_CLIP = 1.0
     
     fold = 1
-    MODEL_DIR = f"/home/guest/lib/data/saved_models/cross_val_complete_data{fold}.pth"
+    MODEL_DIR = f"/home/guest/lib/data/saved_models/cross_val_merged_2_fold_{fold}.pth"
     
-    batch_size = 10
+    batch_size = 20
 
     tanh_normalize = TanhNormalize(factor=5)
     val_transform = transforms.Compose([
@@ -111,7 +192,7 @@ if __name__ == "__main__":
     val_dataset = ValidationDataset(
             annotations_file=ANNOTATION_DIR,
             data_dir=DATA_DIR,
-            eval_data=False,
+            eval_data=True,
             transform=val_transform,
             startswith="LA",
             readjustonce=True,
@@ -132,7 +213,7 @@ if __name__ == "__main__":
             cross_val_fold=fold,
     )
 
-    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_padding)
+    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_padding_merged)
     val_dataloader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_validation)
     train_cindex_dataloader = DataLoader(train_cindex_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_validation)
 
@@ -184,14 +265,25 @@ if __name__ == "__main__":
     cindex = ConcordanceIndex()
 
     model.eval()
-    train_preds , train_durations, train_events = get_predictions(train_cindex_dataloader, model)
+    train_preds , train_durations, train_events, train_inference_df = get_predictions(train_cindex_dataloader, model)
     concordance_train = cindex(estimate=train_preds.view(-1), event=train_events.view(-1), time=train_durations.view(-1))
 
-    val_preds , val_durations, val_events = get_predictions(val_dataloader, model)
+    val_preds , val_durations, val_events, val_inference_df = get_predictions(val_dataloader, model)
     concordance_val = cindex(estimate=val_preds.view(-1), event=val_events.view(-1), time=val_durations.view(-1))
 
+    print(f"Concordance Index on Training Set: {concordance_train:.4f}")
+    
     print(f"Concordance Index on Validation Set: {concordance_val:.4f}")
 
-    plot_risks(train_preds, train_events)
+    plot_low_high_risk(train_inference_df, n_patients=10)
+    plot_low_high_risk(val_inference_df, n_patients=10)
+
+    significant_traces, significant_attentions = get_significant_traces(train_inference_df, threshold=0.01)
+    print(f"Number of significant traces in training set: {significant_traces.shape[0]}")
+
+    """ plot_risks(train_inference_df)
+    plot_risks(val_inference_df)
+    plot_attention(train_inference_df)
+    plot_attention(val_inference_df) """
 
     print("Čau, ahoj")

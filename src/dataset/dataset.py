@@ -27,9 +27,9 @@ def read_hdf(
             return traces
           
     
-def compute_amplitude_indices(t_amp, t_last, fs, num_samples):
+def compute_LAT_indices(t_LAT, t_last, fs, num_samples):
     """
-    Computes the sample indices where amplitude events occur.
+    Computes the sample indices where LAT events occur.
 
     Parameters:
     t_amp (np.ndarray): Array of Unix timestamps when amplitude events occur.
@@ -41,14 +41,14 @@ def compute_amplitude_indices(t_amp, t_last, fs, num_samples):
     np.ndarray: Array of sample indices for each amplitude event.
     """
     # Ensure inputs are numpy arrays and convert byte strings if necessary
-    t_amp = np.array([float(x.decode()) if isinstance(x, bytes) else float(x) for x in t_amp])
+    t_LAT = np.array([float(x.decode()) if isinstance(x, bytes) else float(x) for x in t_LAT])
     t_last = np.array([float(x.decode()) if isinstance(x, bytes) else float(x) for x in t_last])
 
     # Compute the time of the first sample for each signal
     t_first = t_last - (num_samples - 1) / fs
 
     # Compute sample indices (rounded to nearest integer)
-    sample_indices = np.round((t_amp - t_first) * fs).astype(int)
+    sample_indices = np.round((t_LAT - t_first) * fs).astype(int)
 
     return sample_indices
 
@@ -95,7 +95,7 @@ def collect_filepaths_and_maps(data, data_dir, startswith, readjustonce, segment
                 t_amp = t_amp[utilized]
                 t_last = t_last[utilized]
             if segment_ms:
-                indices = compute_amplitude_indices(t_amp, t_last, fs, traces.shape[1])
+                indices = compute_LAT_indices(t_amp, t_last, fs, traces.shape[1])
                 traces = segment_signals(traces, indices, segment_ms, fs)
                 #traces = segmentation(segment_ms, traces, fs)
             maps.append(traces)
@@ -195,8 +195,8 @@ class HDFDataset(Dataset):
                 t_last_control = t_last_control[utilized_control]
 
             if self.segment_ms:
-                case_indices = compute_amplitude_indices(t_amp_case, t_last_case, case_fs, case.shape[1])
-                control_indices = compute_amplitude_indices(t_amp_control, t_last_control, control_fs, control.shape[1])
+                case_indices = compute_LAT_indices(t_amp_case, t_last_case, case_fs, case.shape[1])
+                control_indices = compute_LAT_indices(t_amp_control, t_last_control, control_fs, control.shape[1])
                 case = segment_signals(case, case_indices, self.segment_ms, case_fs)
                 control = segment_signals(control, control_indices, self.segment_ms, control_fs)   
         
@@ -271,7 +271,7 @@ class ValidationDataset(Dataset):
                 t_amp = t_amp[utilized]
                 t_last = t_last[utilized]
             if self.segment_ms:
-                case_indices = compute_amplitude_indices(t_amp, t_last, fs, traces.shape[1])
+                case_indices = compute_LAT_indices(t_amp, t_last, fs, traces.shape[1])
                 traces = segment_signals(traces, case_indices, self.segment_ms, fs)
                 
         if self.transform:
@@ -350,7 +350,7 @@ class EGMDataset(Dataset):
                 t_last = t_last[utilized]
 
             if self.segment_ms:
-                indices = compute_amplitude_indices(t_amp, t_last, fs, traces.shape[1])
+                indices = compute_LAT_indices(t_amp, t_last, fs, traces.shape[1])
                 traces = segment_signals(traces, indices, self.segment_ms, fs)
         
         if self.num_traces:
