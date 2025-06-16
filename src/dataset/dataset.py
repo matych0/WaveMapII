@@ -106,6 +106,35 @@ def collect_filepaths_and_maps(data, data_dir, startswith, readjustonce, segment
         return filepaths
 
 
+def collect_filepaths_and_maps_inference(data, data_dir, startswith, readjustonce, segment_ms, filter_utilized):
+    filepaths, maps, all_trace_indices, all_peak_to_peak = list(), list(), list(), list()
+    for study_id in data["eid"].values:
+        file_fullpath = glob.glob(os.path.join(data_dir, study_id, f"{startswith}*"), recursive=False)[0]
+        #file_fullpath = os.path.join(file_fullpath, os.path.basename(file_fullpath + ".hdf"))
+        filepaths.append(file_fullpath)
+        if readjustonce:
+            traces, fs, metadata = read_hdf(file_fullpath, return_fs=True, metadata_keys=["rov LAT", "end time", "utilized", "peak2peak"])
+            utilized, t_amp, t_last, peak_to_peak = metadata["utilized"], metadata["rov LAT"], metadata["end time"], metadata["peak2peak"]
+            trace_indices = np.arange(0, len(traces), dtype=int)
+            if filter_utilized:
+                traces = traces[utilized, :]
+                t_amp = t_amp[utilized]
+                t_last = t_last[utilized]
+                trace_indices = trace_indices[utilized]
+                peak_to_peak = peak_to_peak[utilized]
+            if segment_ms:
+                indices = compute_LAT_indices(t_amp, t_last, fs, traces.shape[1])
+                traces = segment_signals(traces, indices, segment_ms, fs)
+                #traces = segmentation(segment_ms, traces, fs)
+            maps.append(traces)
+
+        all_trace_indices.append(trace_indices)
+        all_peak_to_peak.append(peak_to_peak)
+
+    return filepaths, maps, all_trace_indices, all_peak_to_peak
+
+
+
 class HDFDataset(Dataset):
     def __init__(
             self,
@@ -281,6 +310,77 @@ class ValidationDataset(Dataset):
 
         return duration, event, traces
     
+
+class ValidationDatasetInference(Dataset):
+    def __init__(
+            self,
+            annotations_file: os.PathLike,
+            data_dir: os.PathLike,
+            eval_data: bool = True,
+            transform = None,            
+            startswith: str = "",
+            readjustonce: bool = True,
+            segment_ms: int = None,
+            filter_utilized: bool = False,
+            cross_val_fold: int = None,
+            ):
+
+        self.data_dir = data_dir
+        self.transform = transform
+        self.annotations = pd.read_csv(annotations_file)
+        # get training/validation studies only
+        if eval_data == True:
+            if cross_val_fold is None:
+                self.annotations = self.annotations[self.annotations["training"] == False]
+            else:
+                self.annotations = self.annotations[self.annotations["fold"] == cross_val_fold]
+        else:
+            if cross_val_fold is None:
+                self.annotations = self.annotations[self.annotations["training"] == True]
+            else:
+                self.annotations = self.annotations[self.annotations["fold"] != cross_val_fold]
+
+        self.annotations.reset_index(drop=True, inplace=True)
+        
+        self.readjustonce = readjustonce
+        self.segment_ms = segment_ms
+        self.filter_utilized = filter_utilized
+
+        self.filepaths, self.maps, self.trace_indices, self.peak_to_peak = collect_filepaths_and_maps_inference(self.annotations, self.data_dir, startswith, readjustonce, segment_ms, filter_utilized)
+
+    def __len__(self):
+        return len(self.annotations)
+
+    def __getitem__(self, idx):
+        duration = self.annotations.at[idx, 'days_to_event']
+        event = self.annotations.at[idx, 'reccurence']
+        filepath = self.filepaths[idx]
+        trace_indices = self.trace_indices[idx]
+        peak_to_peak = self.peak_to_peak[idx]
+
+        if self.readjustonce:
+            traces = self.maps[idx]
+
+        else:
+            traces, fs, metadata = read_hdf(self.maps[idx], return_fs=True, metadata_keys=["rov LAT", "end time", "utilized"])
+            utilized, t_amp, t_last = metadata["utilized"], metadata["rov LAT"], metadata["end time"]
+            trace_indices = np.arange(0, len(traces), dtype=int)
+            if self.filter_utilized:
+                traces = traces[utilized, :]
+                t_amp = t_amp[utilized]
+                t_last = t_last[utilized]
+                trace_indices = trace_indices[utilized]
+            if self.segment_ms:
+                case_indices = compute_LAT_indices(t_amp, t_last, fs, traces.shape[1])
+                traces = segment_signals(traces, case_indices, self.segment_ms, fs)
+                
+        if self.transform:
+            traces = self.transform(traces)
+
+        traces = torch.from_numpy(traces)
+
+        return duration, event, traces, filepath, trace_indices, peak_to_peak
+
 
 class EGMDataset(Dataset):
     def __init__(

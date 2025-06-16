@@ -9,7 +9,7 @@
             "name": "Python: Run Module",
             "type": "debugpy",
             "request": "launch",
-            "module": "scripts.cindex_debug",
+            "module": "scripts.attentions_metrics_logger",
             "console": "integratedTerminal"
           }
     ]
