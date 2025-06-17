@@ -423,7 +423,7 @@ class EGMDataset(Dataset):
             self.reccurence = self.annotations[self.annotations['reccurence'] == 1]
             self.oversampled = pd.concat([self.reccurence] * (oversampling_factor - 1), ignore_index=True)
             self.annotations = pd.concat([self.annotations, self.oversampled], ignore_index=True)
-            self.annotations.reset_index(drop=True, inplace=True)
+        self.annotations.reset_index(drop=True, inplace=True)
 
         # read the HDF files or collect filepaths
         self.maps = collect_filepaths_and_maps(self.annotations, data_dir, startswith, readjustonce, segment_ms, filter_utilized)
@@ -460,13 +460,11 @@ class EGMDataset(Dataset):
         if self.transform:
             traces = self.transform(traces)
 
-        patient = {
-            "traces": torch.from_numpy(traces),
-            "duration": torch.tensor(duration, dtype=torch.float32),
-            "event": torch.tensor(event, dtype=torch.bool), 
-        }
+        traces = torch.from_numpy(traces)
+        duration = torch.tensor(duration, dtype=torch.float32)
+        event = torch.tensor(event, dtype=torch.bool)
         
-        return patient
+        return traces, duration, event
 
 
 if __name__ == "__main__":

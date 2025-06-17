@@ -9,7 +9,7 @@
             "name": "Python: Run Module",
             "type": "debugpy",
             "request": "launch",
-            "module": "scripts.attentions_metrics_logger",
+            "module": "scripts.cross_validation_new_sampling",
             "console": "integratedTerminal"
           }
     ]

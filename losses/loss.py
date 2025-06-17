@@ -98,8 +98,8 @@ class CoxCCLoss(torch.nn.Module):
 
 
 if __name__ == "__main__":
-    g_case = torch.randn([8])
-    g_control = torch.randn([4, 8])
+    g_case = torch.randn([4])
+    g_control = torch.randn([8, 4])
     
     loss = CoxCCLoss(shrink=0.1)
     

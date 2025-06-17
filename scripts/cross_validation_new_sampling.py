@@ -9,7 +9,7 @@ from torch.utils.tensorboard import SummaryWriter
 from src.dataset.dataset import EGMDataset
 from src.dataset.collate import collate_padding
 from model.cox_mil_resnet import CoxAttentionResnet
-from losses.loss import CoxLoss
+from losses.loss import CoxCCLoss
 from src.transforms.transforms import (BaseTransform, RandomAmplifier, RandomGaussian,
                                        RandomTemporalScale, RandomShift, TanhNormalize,
                                        RandomPolarity)
@@ -36,30 +36,16 @@ SEGMENT_MS = 100
 OVERSAMPLING_FACTOR = 4
 
 
-def get_predictions(loader, model):
-    all_risks = []
-    all_durations = []
-    all_events = []
+def sample_cases_controls(risks, events, durations, n_controls):
+    g_cases = risks[events]
+    g_controls = torch.zeros(n_controls, len(g_cases))
+    for i in range(len(g_cases)):
+        case_time = durations[events][i]
+        all_control_risks = risks[durations >= case_time]
+        g_control = all_control_risks[torch.randint(0, len(all_control_risks), (n_controls,))]
+        g_controls[:, i] = g_control
 
-    model.eval()
-    with torch.no_grad():
-        for batch in loader:
-            durations, events, traces, traces_masks = batch
-
-            durations = torch.tensor(durations, dtype=torch.float32)
-            events = torch.tensor(events, dtype=torch.bool)
-
-            risks, _ = model(traces, traces_masks)
-
-            all_risks.append(risks.view(-1))        # Instead of .squeeze()
-            all_durations.append(durations.view(-1))
-            all_events.append(events.view(-1))
-
-    risks_tensor = torch.cat(all_risks).cpu()
-    durations_tensor = torch.cat(all_durations).cpu()
-    events_tensor = torch.cat(all_events).cpu()
-
-    return risks_tensor, durations_tensor, events_tensor
+    return g_cases, g_controls
 
 
 def set_seed(seed):
@@ -79,8 +65,9 @@ def cross_val(folds=3):
     cox_regularization = 0.001
     learning_rate = 0.001
     weight_decay = 0.001
-    batch_size =  12
+    batch_size =  32
     num_epochs =  180 #91
+    n_controls = 8
 
     # Transformations
     polarity = RandomPolarity(probability=0.5, shuffle=True, random_seed=SEED)
@@ -144,7 +131,7 @@ def cross_val(folds=3):
             segment_ms=SEGMENT_MS,
             filter_utilized=FILTER_UTILIZED,
             #oversampling_factor=OVERSAMPLING_FACTOR,
-            cross_val_fold=fold,
+            fold=fold,
             random_seed=SEED,
         )
 
@@ -153,15 +140,14 @@ def cross_val(folds=3):
             data_dir=DATA_DIR,
             startswith="LA",
             training=False,
-            transform=train_transform,
+            transform=val_transform,
             readjustonce=True,
             segment_ms=SEGMENT_MS,
             filter_utilized=FILTER_UTILIZED,
             #oversampling_factor=OVERSAMPLING_FACTOR,
-            cross_val_fold=fold,
+            fold=fold,
             random_seed=SEED,
         )
-
 
         # Create DataLoader
         generator = torch.Generator()
@@ -170,12 +156,12 @@ def cross_val(folds=3):
         val_dataloader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_padding)
 
         # Create a directory for TensorBoard logs
-        log_dir = f"runs/cross_val_merged_tensors/fold_{fold}"
+        log_dir = f"runs/cross_val_ns_test/fold_{fold}"
         writer = SummaryWriter(log_dir)
 
         # Model, Loss, Optimizer
         model = CoxAttentionResnet(resnet_params, amil_params)
-        loss_fn = CoxLoss()
+        loss_fn = CoxCCLoss(shrink=cox_regularization)
         cindex = ConcordanceIndex()
         optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
         scheduler = get_cosine_schedule_with_warmup(
@@ -190,10 +176,17 @@ def cross_val(folds=3):
             total_train_loss = 0.0
             epoch_risks = []
             model.train()
-            for traces, masks in train_dataloader:
+            for traces, masks, durations, events in train_dataloader:
+
                 risks, attentions = model(traces, masks)
-                g_case, g_control = torch.chunk(risks, chunks=2, dim=0)
-                loss = loss_fn(g_case, g_control, shrink=cox_regularization)
+
+
+                if len(risks) >= 1:
+                    g_cases, g_controls = sample_cases_controls(risks, events, durations, n_controls)
+                else:
+                    continue
+                
+                loss = loss_fn(g_cases, g_controls)
 
                 optimizer.zero_grad()
                 loss.backward()
@@ -216,27 +209,30 @@ def cross_val(folds=3):
 
             scheduler.step()
 
+            # Training C-index
+            concordance_train = cindex(estimate=risks.view(-1), event=events.view(-1), time=durations.view(-1))
+            print(f"Fold {fold}, Epoch {epoch+1}/{num_epochs}, Training C-index: {concordance_train:.4f}")
+            writer.add_scalar("C-index training", concordance_train, epoch)
+
             # Validation loss
             model.eval()
             with torch.no_grad():
                 val_loss = 0.0
-                for val_traces, val_masks in val_loss_dataloader:
+                for val_traces, val_masks, val_durations, val_events in val_dataloader:
+
                     val_risks, val_attentions = model(val_traces, val_masks)
-                    val_g_case, val_g_control = torch.chunk(val_risks, chunks=2, dim=0)
-                    val_loss += loss_fn(val_g_case, val_g_control, shrink=cox_regularization).item()
-                avg_val_loss = val_loss / len(val_loss_dataloader)
+
+                    if len(val_risks) >= 1:
+                        val_g_cases, val_g_controls = sample_cases_controls(val_risks, val_events, val_durations, n_controls)
+                    else:
+                        continue
+                    val_loss += loss_fn(val_g_cases, val_g_controls).item()
+                avg_val_loss = val_loss / len(val_dataloader)
                 print(f"Fold {fold}, Epoch {epoch+1}/{num_epochs}, Validation loss: {avg_val_loss:.4f}")
                 writer.add_scalar("Validation loss", avg_val_loss, epoch)
 
-            # Training C-index
-            train_preds , train_durations, train_events = get_predictions(train_cindex_dataloader, model)
-            concordance_train = cindex(estimate=train_preds.view(-1), event=train_events.view(-1), time=train_durations.view(-1))
-            print(f"Fold {fold}, Epoch {epoch+1}/{num_epochs}, Training C-index: {concordance_train:.4f}")
-            writer.add_scalar("C-index training", concordance_train, epoch)
-
             # Validation C-index
-            val_preds , val_durations, val_events = get_predictions(val_dataloader, model)
-            concordance_val = cindex(estimate=val_preds.view(-1), event=val_events.view(-1), time=val_durations.view(-1))
+            concordance_val = cindex(estimate=val_risks.view(-1), event=val_events.view(-1), time=val_durations.view(-1))
             print(f"Fold {fold}, Epoch {epoch+1}/{num_epochs}, Validation C-index: {concordance_val:.4f}")
             writer.add_scalar("C-index evaluation", concordance_val, epoch)
 
@@ -258,7 +254,7 @@ def cross_val(folds=3):
 
         writer.close()
 
-        torch.save(model.state_dict(), f"/home/guest/lib/data/saved_models/cross_val_merged_fold_{fold}.pth")
+        torch.save(model.state_dict(), f"/home/guest/lib/data/saved_models/cross_val_new_sampling_{fold}.pth")
 
 
 if __name__ == "__main__":
