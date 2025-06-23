@@ -37,9 +37,13 @@ OVERSAMPLING_FACTOR = 4
 
 
 def sample_cases_controls(risks, events, durations, n_controls):
+    risks.squeeze_()
     g_cases = risks[events]
-    g_controls = torch.zeros(n_controls, len(g_cases))
-    for i in range(len(g_cases)):
+    n_cases = g_cases.numel()
+    if n_cases == 1:
+        g_cases = g_cases.reshape(1)  # Ensure g_cases is a 1D tensor
+    g_controls = torch.zeros(n_controls, n_cases)
+    for i in range(n_cases):
         case_time = durations[events][i]
         all_control_risks = risks[durations >= case_time]
         g_control = all_control_risks[torch.randint(0, len(all_control_risks), (n_controls,))]
@@ -62,12 +66,12 @@ def cross_val(folds=3):
     projection_nodes = 128
     attention_nodes = 64
     dropout = 0.2
-    cox_regularization = 0.001
-    learning_rate = 0.001
-    weight_decay = 0.001
+    cox_regularization = 0.01
+    learning_rate = 0.005
+    weight_decay = 0.01
     batch_size =  32
-    num_epochs =  180 #91
-    n_controls = 8
+    num_epochs =  200 #91
+    n_controls = 16
 
     # Transformations
     polarity = RandomPolarity(probability=0.5, shuffle=True, random_seed=SEED)
@@ -104,7 +108,7 @@ def cross_val(folds=3):
 
     for fold in range(folds):
 
-        print(f"Fold {fold}/{folds}")
+        print(f"Fold {fold+1}/{folds}")
 
         train_transform = transforms.Compose([
             polarity,
@@ -131,6 +135,7 @@ def cross_val(folds=3):
             segment_ms=SEGMENT_MS,
             filter_utilized=FILTER_UTILIZED,
             #oversampling_factor=OVERSAMPLING_FACTOR,
+            controls_time_shift=60,  # Shift controls by 60 days
             fold=fold,
             random_seed=SEED,
         )
@@ -145,6 +150,7 @@ def cross_val(folds=3):
             segment_ms=SEGMENT_MS,
             filter_utilized=FILTER_UTILIZED,
             #oversampling_factor=OVERSAMPLING_FACTOR,
+            controls_time_shift=60,  # Shift controls by 60 days
             fold=fold,
             random_seed=SEED,
         )
@@ -156,7 +162,7 @@ def cross_val(folds=3):
         val_dataloader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_padding)
 
         # Create a directory for TensorBoard logs
-        log_dir = f"runs/cross_val_ns_test/fold_{fold}"
+        log_dir = f"runs/cross_val_ns_test_3_/fold_{fold}"
         writer = SummaryWriter(log_dir)
 
         # Model, Loss, Optimizer
@@ -178,13 +184,12 @@ def cross_val(folds=3):
             model.train()
             for traces, masks, durations, events in train_dataloader:
 
+                if not events.any():
+                    continue
+
                 risks, attentions = model(traces, masks)
 
-
-                if len(risks) >= 1:
-                    g_cases, g_controls = sample_cases_controls(risks, events, durations, n_controls)
-                else:
-                    continue
+                g_cases, g_controls = sample_cases_controls(risks, events, durations, n_controls)
                 
                 loss = loss_fn(g_cases, g_controls)
 
@@ -220,13 +225,15 @@ def cross_val(folds=3):
                 val_loss = 0.0
                 for val_traces, val_masks, val_durations, val_events in val_dataloader:
 
+                    if not val_events.any():
+                        continue
+
                     val_risks, val_attentions = model(val_traces, val_masks)
 
-                    if len(val_risks) >= 1:
-                        val_g_cases, val_g_controls = sample_cases_controls(val_risks, val_events, val_durations, n_controls)
-                    else:
-                        continue
+                    val_g_cases, val_g_controls = sample_cases_controls(val_risks, val_events, val_durations, n_controls)
+
                     val_loss += loss_fn(val_g_cases, val_g_controls).item()
+
                 avg_val_loss = val_loss / len(val_dataloader)
                 print(f"Fold {fold}, Epoch {epoch+1}/{num_epochs}, Validation loss: {avg_val_loss:.4f}")
                 writer.add_scalar("Validation loss", avg_val_loss, epoch)
@@ -254,7 +261,7 @@ def cross_val(folds=3):
 
         writer.close()
 
-        torch.save(model.state_dict(), f"/home/guest/lib/data/saved_models/cross_val_new_sampling_{fold}.pth")
+        torch.save(model.state_dict(), f"/home/guest/lib/data/saved_models/cross_val_new_sampling_3_{fold}.pth")
 
 
 if __name__ == "__main__":

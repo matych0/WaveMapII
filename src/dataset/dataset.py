@@ -391,13 +391,13 @@ class EGMDataset(Dataset):
             training: bool = True,
             fold: int = 0,
             readjustonce: bool = True,  
-            oversampling_factor: int = None,        
+            oversampling_factor: int = None,    
+            controls_time_shift: int = 0,    
             num_traces: int = None,
             segment_ms: int = None,
             filter_utilized: bool = False, 
             transform = None,  
-            random_seed: int = 3052001,
-            num_controls: int = 1,    
+            random_seed: int = 3052001,   
             ):
         
 
@@ -424,6 +424,10 @@ class EGMDataset(Dataset):
             self.oversampled = pd.concat([self.reccurence] * (oversampling_factor - 1), ignore_index=True)
             self.annotations = pd.concat([self.annotations, self.oversampled], ignore_index=True)
         self.annotations.reset_index(drop=True, inplace=True)
+
+        if controls_time_shift > 0:
+            # Shift the controls by a random amount of time
+            self.annotations['days_to_event'] += controls_time_shift
 
         # read the HDF files or collect filepaths
         self.maps = collect_filepaths_and_maps(self.annotations, data_dir, startswith, readjustonce, segment_ms, filter_utilized)

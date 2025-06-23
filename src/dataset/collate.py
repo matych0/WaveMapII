@@ -16,8 +16,8 @@ def collate_padding(batch: List[Dict]) -> Tuple[torch.Tensor, torch.Tensor, torc
         A tuple containing padded case bags, padded control bags, case masks, and control masks.
     """
     traces_bags: List[torch.Tensor] = [item[0] for item in batch]
-    durations: torch.Tensor = torch.cat([item[1] for item in batch])
-    events: torch.Tensor = torch.cat([item[2] for item in batch])
+    durations: torch.Tensor = torch.stack([item[1] for item in batch])
+    events: torch.Tensor = torch.stack([item[2] for item in batch])
 
     # Pad bags along the H dimension
     traces_padded_bags: torch.Tensor = pad_sequence(traces_bags, batch_first=True, padding_value=0.0)  # Shape [B, max_H, W]
