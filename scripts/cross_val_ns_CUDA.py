@@ -37,16 +37,18 @@ OVERSAMPLING_FACTOR = 4
 
 
 def sample_cases_controls(risks, events, durations, n_controls):
+    device = risks.device
+
     risks.squeeze_()
     g_cases = risks[events]
     n_cases = g_cases.numel()
     if n_cases == 1:
         g_cases = g_cases.reshape(1)  # Ensure g_cases is a 1D tensor
-    g_controls = torch.zeros(n_controls, n_cases)
+    g_controls = torch.zeros(n_controls, n_cases, device=device)
     for i in range(n_cases):
         case_time = durations[events][i]
         all_control_risks = risks[durations >= case_time]
-        g_control = all_control_risks[torch.randint(0, len(all_control_risks), (n_controls,))]
+        g_control = all_control_risks[torch.randint(0, len(all_control_risks), (n_controls,), device=device)]
         g_controls[:, i] = g_control
 
     return g_cases, g_controls
@@ -55,12 +57,15 @@ def sample_cases_controls(risks, events, durations, n_controls):
 def set_seed(seed):
     torch.manual_seed(seed)
     np.random.seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
 
 
 def cross_val(folds=3):
     """Cross-validation function to evaluate the model."""
 
     set_seed(SEED)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # Hyperparameters to optimize
     projection_nodes = 128
@@ -69,8 +74,8 @@ def cross_val(folds=3):
     cox_regularization = 0.01
     learning_rate = 0.001
     weight_decay = 0.01
-    batch_size =  32
-    num_epochs =  180 #91
+    batch_size =  8
+    num_epochs =  120 #91
     n_controls = 8
 
     # Transformations
@@ -166,7 +171,7 @@ def cross_val(folds=3):
         writer = SummaryWriter(log_dir)
 
         # Model, Loss, Optimizer
-        model = CoxAttentionResnet(resnet_params, amil_params)
+        model = CoxAttentionResnet(resnet_params, amil_params).to(device)
         loss_fn = CoxCCLoss(shrink=cox_regularization)
         cindex = ConcordanceIndex()
         optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
@@ -183,6 +188,10 @@ def cross_val(folds=3):
             epoch_risks, epoch_events, epoch_durations = list(), list(), list()
             model.train()
             for traces, masks, durations, events in train_dataloader:
+                traces = traces.to(device)
+                masks = masks.to(device)
+                durations = durations.to(device)
+                events = events.to(device)
 
                 if not events.any():
                     continue
@@ -231,6 +240,11 @@ def cross_val(folds=3):
                 val_loss = 0.0
                 val_epoch_risks, val_epoch_events, val_epoch_durations = list(), list(), list()
                 for val_traces, val_masks, val_durations, val_events in val_dataloader:
+                    
+                    val_traces = val_traces.to(device)
+                    val_masks = val_masks.to(device)
+                    val_durations = val_durations.to(device)
+                    val_events = val_events.to(device)
 
                     if not val_events.any():
                         continue
@@ -275,7 +289,7 @@ def cross_val(folds=3):
 
         writer.close()
 
-        torch.save(model.state_dict(), f"/home/guest/lib/data/saved_models/cross_val_new_sampling_3_{fold}.pth")
+        #torch.save(model.state_dict(), f"/home/guest/lib/data/saved_models/cross_val_new_sampling_3_{fold}.pth")
 
 
 if __name__ == "__main__":
