@@ -20,8 +20,8 @@ from torchsurv.metrics.cindex import ConcordanceIndex
 #Set seed
 SEED = 3052001
 
-ANNOTATION_DIR = "/media/guest/DataStorage/WaveMap/HDF5/annotations_complete.csv"
-DATA_DIR = "/media/guest/DataStorage/WaveMap/HDF5"
+ANNOTATION_DIR = "D:/Matych/HDF5/annotations_complete.csv"
+DATA_DIR = "D:/Matych/HDF5"
 
 #hyperparameters
 KERNEL_SIZE = (1, 5)
@@ -74,8 +74,8 @@ def cross_val(folds=3):
     cox_regularization = 0.01
     learning_rate = 0.001
     weight_decay = 0.01
-    batch_size =  8
-    num_epochs =  120 #91
+    batch_size = 8
+    num_epochs = 120
     n_controls = 8
 
     # Transformations
@@ -167,12 +167,12 @@ def cross_val(folds=3):
         val_dataloader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_padding)
 
         # Create a directory for TensorBoard logs
-        log_dir = f"runs/cross_val_ns_test_3_/fold_{fold}"
+        log_dir = f"runs/cross_val_ns_test_CUDA/fold_{fold}"
         writer = SummaryWriter(log_dir)
 
         # Model, Loss, Optimizer
         model = CoxAttentionResnet(resnet_params, amil_params).to(device)
-        loss_fn = CoxCCLoss(shrink=cox_regularization)
+        loss_fn = CoxCCLoss(shrink=cox_regularization).to(device)
         cindex = ConcordanceIndex()
         optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
         scheduler = get_cosine_schedule_with_warmup(
