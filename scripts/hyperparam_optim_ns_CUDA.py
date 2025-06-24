@@ -1,3 +1,4 @@
+import optuna
 import torch
 import torch.optim as optim
 from torchvision import transforms
@@ -11,8 +12,10 @@ from losses.loss import CoxCCLoss
 from src.transforms.transforms import (BaseTransform, RandomAmplifier, RandomGaussian,
                                        RandomTemporalScale, RandomShift, TanhNormalize,
                                        RandomPolarity)
+import datetime
 import numpy as np
 from torchsurv.metrics.cindex import ConcordanceIndex
+from statistics import median
 
 
 #Set seed
@@ -26,15 +29,15 @@ KERNEL_SIZE = (1, 5)
 STEM_KERNEL_SIZE = (1, 17)
 BLOCKS = [3, 4, 6, 3]
 FEATURES = [16, 32, 64, 128]
+PROJECTION_NODES = 128
+ATTENTION_NODES = 64
 ACTIVATION = "LReLU"
 DOWNSAMPLING_FACTOR = 2
 NORMALIZATION = "BatchN2D"
 FILTER_UTILIZED = True
 SEGMENT_MS = 100
 OVERSAMPLING_FACTOR = None
-CHUNK_SIZE = 8  # Adjust to fit GPU memory
-
-
+FOLDS = 3
 
 def sample_cases_controls(risks, events, durations, n_controls):
     device = risks.device
@@ -61,24 +64,19 @@ def set_seed(seed):
         torch.cuda.manual_seed_all(seed)
 
 
-def cross_val(folds=3):
-    """Cross-validation function to evaluate the model."""
-
+def objective(trial):
+    """Objective function for Optuna hyperparameter optimization."""
     set_seed(SEED)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # Hyperparameters to optimize
-    projection_nodes = 128
-    attention_nodes = 64
-    dropout = 0.2
-    cox_regularization = 0.01
-    learning_rate = 0.001
-    weight_decay = 0.01
-    batch_size = 8
-    num_epochs = 120
-    n_controls = 8
-
-    accumulation_steps = batch_size // CHUNK_SIZE
+    dropout = trial.suggest_categorical('dropout', [0.0, 0.25, 0.5])
+    cox_regularization = trial.suggest_categorical('cox_regularization', [0.0, 1e-3, 1e-2, 1e-1])
+    learning_rate = trial.suggest_categorical('learning_rate', [1e-4, 5e-4, 1e-3, 5e-3, 1e-2])
+    weight_decay = trial.suggest_categorical('weight_decay', [1e-4, 1e-3, 1e-2, 1e-1])
+    batch_size =  trial.suggest_categorical("batch_size", [8, 16, 32])
+    num_epochs =  trial.suggest_int("num_epochs", 50, 500, log=True)
+    n_controls = trial.suggest_categorical("n_controls", [4, 8, 16])
 
     # Transformations
     polarity = RandomPolarity(probability=0.5, shuffle=True, random_seed=SEED)
@@ -106,16 +104,18 @@ def cross_val(folds=3):
     # Define parameters for AMIL
     amil_params = {
         "input_size": FEATURES[-1],
-        "hidden_size": projection_nodes,
-        "attention_hidden_size": attention_nodes,
+        "hidden_size": PROJECTION_NODES,
+        "attention_hidden_size": ATTENTION_NODES,
         "output_size": 1,
         "dropout": True,
         "dropout_prob": dropout,
     }
 
-    for fold in range(folds):
+    fold_concordances = []
 
-        print(f"Fold {fold+1}/{folds}")
+    for fold in range(FOLDS):
+
+        print(f"Fold {fold+1}/{FOLDS}")
 
         train_transform = transforms.Compose([
             polarity,
@@ -182,6 +182,8 @@ def cross_val(folds=3):
             num_warmup_steps=num_epochs // 10,
             num_training_steps=num_epochs, # total number of steps (warmup + cosine decay)
         )
+
+        val_concordances = []
         
         # Training loop
         model.train()
@@ -197,40 +199,6 @@ def cross_val(folds=3):
 
                 if not events.any():
                     continue
-                
-                # Gradient accumulation
-                """ optimizer.zero_grad()
-
-                batch_loss = 0.0  # To accumulate loss for logging
-
-                for i in range(accumulation_steps):
-                    start = i * CHUNK_SIZE
-                    end = min(start + CHUNK_SIZE, batch_size)
-
-                    traces_chunk = traces[start:end]
-                    masks_chunk = masks[start:end]
-                    durations_chunk = durations[start:end]
-                    events_chunk = events[start:end]
-
-                    risks_chunk, attentions_chunk = model(traces_chunk, masks_chunk)
-
-                    g_cases, g_controls = sample_cases_controls(risks_chunk, events_chunk, durations_chunk, n_controls)
-                    loss = loss_fn(g_cases, g_controls)
-
-                    # Normalize loss to maintain consistent scale
-                    loss = loss / accumulation_steps
-                    loss.backward()
-
-                    batch_loss += loss.item()
-
-                    # Store for logging
-                    epoch_risks.append(risks_chunk.detach().cpu().view(-1))
-                    epoch_events.append(events_chunk.detach().cpu().view(-1))
-                    epoch_durations.append(durations_chunk.detach().cpu().view(-1))
-
-                optimizer.step()
-                total_train_loss += batch_loss """
-
 
                 risks, attentions = model(traces, masks)
 
@@ -249,13 +217,7 @@ def cross_val(folds=3):
                 epoch_durations.append(durations.detach().cpu().view(-1))
 
             avg_train_loss = total_train_loss / len(train_dataloader)
-            print(f"Fold {fold}, Epoch {epoch+1}/{num_epochs}, Training loss: {avg_train_loss:.4f}")
             writer.add_scalar("Train loss", avg_train_loss, epoch)
-
-            #risks_tensor = torch.cat(epoch_risks, dim=0)
-            #writer.add_histogram("Train/Risks", risks_tensor, epoch)
-
-            #writer.add_histogram("Train/Attentions", attentions[0,:,:], epoch)
 
             current_lr = optimizer.param_groups[0]['lr']
             writer.add_scalar("Learning Rate", current_lr, epoch)
@@ -267,7 +229,6 @@ def cross_val(folds=3):
             epoch_events = torch.cat(epoch_events, dim=0)
             epoch_durations = torch.cat(epoch_durations, dim=0)
             concordance_train = cindex(estimate=epoch_risks, event=epoch_events, time=epoch_durations)
-            print(f"Fold {fold}, Epoch {epoch+1}/{num_epochs}, Training C-index: {concordance_train:.4f}")
             writer.add_scalar("C-index training", concordance_train, epoch)
 
             # Validation loss
@@ -296,7 +257,6 @@ def cross_val(folds=3):
                     val_epoch_durations.append(val_durations.detach().cpu().view(-1))
 
                 avg_val_loss = val_loss / len(val_dataloader)
-                print(f"Fold {fold}, Epoch {epoch+1}/{num_epochs}, Validation loss: {avg_val_loss:.4f}")
                 writer.add_scalar("Validation loss", avg_val_loss, epoch)
 
             # Validation C-index
@@ -304,20 +264,23 @@ def cross_val(folds=3):
             val_epoch_events = torch.cat(val_epoch_events, dim=0)
             val_epoch_durations = torch.cat(val_epoch_durations, dim=0)
             concordance_val = cindex(estimate=val_epoch_risks, event=val_epoch_events, time=val_epoch_durations)
-            print(f"Fold {fold}, Epoch {epoch+1}/{num_epochs}, Validation C-index: {concordance_val:.4f}")
+            val_concordances.append(concordance_val)
             writer.add_scalar("C-index evaluation", concordance_val, epoch)
+
+        fold_concordance = median(val_concordances[-10:])  # Use median of last 10 epochs
+        fold_concordances.append(fold_concordance)
 
         # Log best values (e.g., final validation cindex and training loss)
         writer.add_hparams(
-            {"projection_nodes": projection_nodes,
-            "attention_nodes": attention_nodes,
-            "dropout": dropout,
-            "cox_regularization": cox_regularization,
-            "weight_decay": weight_decay,
+            {"learning_rate": learning_rate,
             "batch_size": batch_size,
-            "learning_rate": learning_rate,
-            "num_epochs": num_epochs},
-            {"hparam/concordance_val": concordance_val, 
+            "n_controls": n_controls,
+            "dropout": dropout,
+            "weight_decay": weight_decay,
+            "cox_regularization": cox_regularization,
+            "num_epochs": num_epochs
+            },
+            {"hparam/val_cindex": fold_concordance, 
             "hparam/loss": avg_train_loss,
             "hparam/val_loss": avg_val_loss,
             "hparam/train_cindex": concordance_train}
@@ -327,8 +290,24 @@ def cross_val(folds=3):
 
         #torch.save(model.state_dict(), f"/home/guest/lib/data/saved_models/cross_val_new_sampling_3_{fold}.pth")
 
+    mean_concordance = np.mean(fold_concordances)
+
+    return mean_concordance  # Maximize concordance → minimize negative
+
 
 if __name__ == "__main__":
-    # Cross-validation
-    folds = 3
-    cross_val(folds=folds)
+
+    num_trials = 100
+
+    sampler = optuna.samplers.TPESampler(multivariate=True, seed=3052001, n_startup_trials=20)
+    
+    study = optuna.create_study(
+        study_name="hyperparam_optim_02_05",
+        storage="sqlite:///hyperparam_optim_02_05.db",
+        direction="maximize",
+        sampler=sampler,
+        load_if_exists=True
+    )
+
+    study.optimize(objective, n_trials=num_trials)
+    print("Best hyperparameters:", study.best_params)
