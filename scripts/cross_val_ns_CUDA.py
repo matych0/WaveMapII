@@ -74,7 +74,7 @@ def cross_val(folds=3):
     cox_regularization = 0.01
     learning_rate = 0.001
     weight_decay = 0.01
-    batch_size = 8
+    batch_size = 32
     num_epochs = 120
     n_controls = 8
 
@@ -166,10 +166,12 @@ def cross_val(folds=3):
         generator = torch.Generator()
         generator.manual_seed(SEED)
         train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, generator=generator, collate_fn=collate_padding)
-        val_dataloader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_padding)
+
+        val_batch_size = batch_size if batch_size <= CHUNK_SIZE else CHUNK_SIZE
+        val_dataloader = DataLoader(val_dataset, batch_size=val_batch_size, shuffle=False, collate_fn=collate_padding)
 
         # Create a directory for TensorBoard logs
-        log_dir = f"runs/cross_val_ns_test_CUDA/fold_{fold}"
+        log_dir = f"runs/cross_val_ns_test_CUDA_bs_4/fold_{fold}"
         writer = SummaryWriter(log_dir)
 
         # Model, Loss, Optimizer
@@ -199,54 +201,62 @@ def cross_val(folds=3):
                     continue
                 
                 # Gradient accumulation
-                """ optimizer.zero_grad()
+                if batch_size > CHUNK_SIZE:
 
-                batch_loss = 0.0  # To accumulate loss for logging
+                    accumulation_steps = batch_size // CHUNK_SIZE
+                    optimizer.zero_grad()
+                    batch_loss = 0.0  # To accumulate loss for logging
 
-                for i in range(accumulation_steps):
-                    start = i * CHUNK_SIZE
-                    end = min(start + CHUNK_SIZE, batch_size)
+                    for i in range(accumulation_steps):
+                        start = i * CHUNK_SIZE
+                        end = min(start + CHUNK_SIZE, batch_size)
 
-                    traces_chunk = traces[start:end]
-                    masks_chunk = masks[start:end]
-                    durations_chunk = durations[start:end]
-                    events_chunk = events[start:end]
+                        events_chunk = events[start:end]
 
-                    risks_chunk, attentions_chunk = model(traces_chunk, masks_chunk)
+                        if not events_chunk.any():
+                            continue
 
-                    g_cases, g_controls = sample_cases_controls(risks_chunk, events_chunk, durations_chunk, n_controls)
+                        traces_chunk = traces[start:end]
+                        masks_chunk = masks[start:end]
+                        durations_chunk = durations[start:end]
+
+
+                        risks_chunk, attentions_chunk = model(traces_chunk, masks_chunk)
+
+                        g_cases, g_controls = sample_cases_controls(risks_chunk, events_chunk, durations_chunk,
+                                                                    n_controls)
+                        loss = loss_fn(g_cases, g_controls)
+
+                        # Normalize loss to maintain consistent scale
+                        loss = loss / accumulation_steps
+                        loss.backward()
+
+                        batch_loss += loss.item()
+
+                        # Store for logging
+                        epoch_risks.append(risks_chunk.detach().cpu().view(-1))
+                        epoch_events.append(events_chunk.detach().cpu().view(-1))
+                        epoch_durations.append(durations_chunk.detach().cpu().view(-1))
+
+                    optimizer.step()
+                    total_train_loss += batch_loss
+
+                else:
+                    risks, attentions = model(traces, masks)
+
+                    g_cases, g_controls = sample_cases_controls(risks, events, durations, n_controls)
+
                     loss = loss_fn(g_cases, g_controls)
 
-                    # Normalize loss to maintain consistent scale
-                    loss = loss / accumulation_steps
+                    optimizer.zero_grad()
                     loss.backward()
+                    optimizer.step()
 
-                    batch_loss += loss.item()
+                    total_train_loss += loss.item()
 
-                    # Store for logging
-                    epoch_risks.append(risks_chunk.detach().cpu().view(-1))
-                    epoch_events.append(events_chunk.detach().cpu().view(-1))
-                    epoch_durations.append(durations_chunk.detach().cpu().view(-1))
-
-                optimizer.step()
-                total_train_loss += batch_loss """
-
-
-                risks, attentions = model(traces, masks)
-
-                g_cases, g_controls = sample_cases_controls(risks, events, durations, n_controls)
-                
-                loss = loss_fn(g_cases, g_controls)
-
-                optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
-
-                total_train_loss += loss.item()
-
-                epoch_risks.append(risks.detach().cpu().view(-1))
-                epoch_events.append(events.detach().cpu().view(-1))
-                epoch_durations.append(durations.detach().cpu().view(-1))
+                    epoch_risks.append(risks.detach().cpu().view(-1))
+                    epoch_events.append(events.detach().cpu().view(-1))
+                    epoch_durations.append(durations.detach().cpu().view(-1))
 
             avg_train_loss = total_train_loss / len(train_dataloader)
             print(f"Fold {fold}, Epoch {epoch+1}/{num_epochs}, Training loss: {avg_train_loss:.4f}")

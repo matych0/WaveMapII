@@ -1,4 +1,5 @@
 import optuna
+import os
 import torch
 import torch.optim as optim
 from torchvision import transforms
@@ -12,7 +13,6 @@ from losses.loss import CoxCCLoss
 from src.transforms.transforms import (BaseTransform, RandomAmplifier, RandomGaussian,
                                        RandomTemporalScale, RandomShift, TanhNormalize,
                                        RandomPolarity)
-import datetime
 import numpy as np
 from torchsurv.metrics.cindex import ConcordanceIndex
 from statistics import median
@@ -23,6 +23,13 @@ SEED = 3052001
 
 ANNOTATION_DIR = "D:/Matych/HDF5/annotations_complete.csv"
 DATA_DIR = "D:/Matych/HDF5"
+
+SAVE_MODEL_PATH = "C:/Users/xmatyc00/Documents/lib/saved_models"
+STUDY_NAME = "hyperparam_optim_mult_controls_CUDA"
+TB_LOG_DIR = "runs"
+STUDY_DIR = "C:/Users/xmatyc00/Documents/lib/optuna_studies"
+
+
 
 #hyperparameters
 KERNEL_SIZE = (1, 5)
@@ -37,7 +44,10 @@ NORMALIZATION = "BatchN2D"
 FILTER_UTILIZED = True
 SEGMENT_MS = 100
 OVERSAMPLING_FACTOR = None
+CHUNK_SIZE = 8
 FOLDS = 3
+
+
 
 def sample_cases_controls(risks, events, durations, n_controls):
     device = risks.device
@@ -75,8 +85,8 @@ def objective(trial):
     learning_rate = trial.suggest_categorical('learning_rate', [1e-4, 5e-4, 1e-3, 5e-3, 1e-2])
     weight_decay = trial.suggest_categorical('weight_decay', [1e-4, 1e-3, 1e-2, 1e-1])
     batch_size =  trial.suggest_categorical("batch_size", [8, 16, 32])
-    num_epochs =  trial.suggest_int("num_epochs", 50, 500, log=True)
-    n_controls = trial.suggest_categorical("n_controls", [4, 8, 16])
+    num_epochs = trial.suggest_int("num_epochs", 50, 500, log=True)
+    n_controls = trial.suggest_categorical("n_controls", [4, 8])
 
     # Transformations
     polarity = RandomPolarity(probability=0.5, shuffle=True, random_seed=SEED)
@@ -111,11 +121,13 @@ def objective(trial):
         "dropout_prob": dropout,
     }
 
+
+    print(f"Optuna Trial {trial.number}")
+    print(f"Epochs: {num_epochs}")
+
     fold_concordances = []
 
     for fold in range(FOLDS):
-
-        print(f"Fold {fold+1}/{FOLDS}")
 
         train_transform = transforms.Compose([
             polarity,
@@ -166,10 +178,11 @@ def objective(trial):
         generator = torch.Generator()
         generator.manual_seed(SEED)
         train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, generator=generator, collate_fn=collate_padding)
-        val_dataloader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_padding)
+        val_batch_size = batch_size if batch_size <= CHUNK_SIZE else CHUNK_SIZE
+        val_dataloader = DataLoader(val_dataset, batch_size=val_batch_size, shuffle=False, collate_fn=collate_padding)
 
         # Create a directory for TensorBoard logs
-        log_dir = f"runs/cross_val_ns_test_CUDA/fold_{fold}"
+        log_dir = os.path.join(TB_LOG_DIR, STUDY_NAME, f"optuna_trial_{trial.number}/fold_{fold}")
         writer = SummaryWriter(log_dir)
 
         # Model, Loss, Optimizer
@@ -200,21 +213,62 @@ def objective(trial):
                 if not events.any():
                     continue
 
-                risks, attentions = model(traces, masks)
+                # Gradient accumulation
+                if batch_size > CHUNK_SIZE:
 
-                g_cases, g_controls = sample_cases_controls(risks, events, durations, n_controls)
-                
-                loss = loss_fn(g_cases, g_controls)
+                    accumulation_steps = batch_size // CHUNK_SIZE
+                    optimizer.zero_grad()
+                    batch_loss = 0.0  # To accumulate loss for logging
 
-                optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
+                    for i in range(accumulation_steps):
+                        start = i * CHUNK_SIZE
+                        end = min(start + CHUNK_SIZE, batch_size)
 
-                total_train_loss += loss.item()
+                        events_chunk = events[start:end]
 
-                epoch_risks.append(risks.detach().cpu().view(-1))
-                epoch_events.append(events.detach().cpu().view(-1))
-                epoch_durations.append(durations.detach().cpu().view(-1))
+                        if not events_chunk.any():
+                            continue
+
+                        traces_chunk = traces[start:end]
+                        masks_chunk = masks[start:end]
+                        durations_chunk = durations[start:end]
+
+                        risks_chunk, attentions_chunk = model(traces_chunk, masks_chunk)
+
+                        g_cases, g_controls = sample_cases_controls(risks_chunk, events_chunk, durations_chunk,
+                                                                    n_controls)
+                        loss = loss_fn(g_cases, g_controls)
+
+                        # Normalize loss to maintain consistent scale
+                        loss = loss / accumulation_steps
+                        loss.backward()
+
+                        batch_loss += loss.item()
+
+                        # Store for logging
+                        epoch_risks.append(risks_chunk.detach().cpu().view(-1))
+                        epoch_events.append(events_chunk.detach().cpu().view(-1))
+                        epoch_durations.append(durations_chunk.detach().cpu().view(-1))
+
+                    optimizer.step()
+                    total_train_loss += batch_loss
+
+                else:
+                    risks, attentions = model(traces, masks)
+
+                    g_cases, g_controls = sample_cases_controls(risks, events, durations, n_controls)
+
+                    loss = loss_fn(g_cases, g_controls)
+
+                    optimizer.zero_grad()
+                    loss.backward()
+                    optimizer.step()
+
+                    total_train_loss += loss.item()
+
+                    epoch_risks.append(risks.detach().cpu().view(-1))
+                    epoch_events.append(events.detach().cpu().view(-1))
+                    epoch_durations.append(durations.detach().cpu().view(-1))
 
             avg_train_loss = total_train_loss / len(train_dataloader)
             writer.add_scalar("Train loss", avg_train_loss, epoch)
@@ -268,6 +322,8 @@ def objective(trial):
             writer.add_scalar("C-index evaluation", concordance_val, epoch)
 
         fold_concordance = median(val_concordances[-10:])  # Use median of last 10 epochs
+        print(f"Fold {fold}, Validation C-index: {fold_concordance:.4f}")
+        print(f"Fold {fold}, Training C-index: {concordance_train:.4f}")
         fold_concordances.append(fold_concordance)
 
         # Log best values (e.g., final validation cindex and training loss)
@@ -288,24 +344,39 @@ def objective(trial):
 
         writer.close()
 
-        #torch.save(model.state_dict(), f"/home/guest/lib/data/saved_models/cross_val_new_sampling_3_{fold}.pth")
+        if fold_concordance > 0.55:  #####!
+            torch.save(model.state_dict(), os.path.join(SAVE_MODEL_PATH, f"{STUDY_NAME}_trial_{trial.number}_fold_{fold}.pth"))
+
+        # Pruning after poor folds
+        trial.report(fold_concordance, step=fold)
+        if trial.should_prune() and fold < 2:
+            raise optuna.TrialPruned()
 
     mean_concordance = np.mean(fold_concordances)
+    print(f"Overall mean C-index: {mean_concordance:.4f}")
 
     return mean_concordance  # Maximize concordance → minimize negative
 
 
 if __name__ == "__main__":
 
-    num_trials = 100
+    num_trials = 200
 
     sampler = optuna.samplers.TPESampler(multivariate=True, seed=3052001, n_startup_trials=20)
-    
+
+    pruner = optuna.pruners.ThresholdPruner(
+        lower=0.5,  # Prune if fold C-index value is < 0.5
+        upper=None
+    )
+
+    study_path = os.path.join(STUDY_DIR, STUDY_NAME).replace("\\", "/")
+
     study = optuna.create_study(
-        study_name="hyperparam_optim_02_05",
-        storage="sqlite:///hyperparam_optim_02_05.db",
+        study_name=STUDY_NAME,
+        storage="sqlite:///" + study_path,
         direction="maximize",
         sampler=sampler,
+        pruner=pruner,
         load_if_exists=True
     )
 
