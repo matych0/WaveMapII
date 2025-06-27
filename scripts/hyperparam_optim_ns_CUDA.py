@@ -24,10 +24,10 @@ SEED = 3052001
 ANNOTATION_DIR = "D:/Matych/HDF5/annotations_complete.csv"
 DATA_DIR = "D:/Matych/HDF5"
 
-SAVE_MODEL_PATH = "C:/Users/xmatyc00/Documents/lib/saved_models"
+SAVE_MODEL_PATH = "D:/Matych/saved_models"
 STUDY_NAME = "hyperparam_optim_mult_controls_CUDA"
-TB_LOG_DIR = "runs"
-STUDY_DIR = "C:/Users/xmatyc00/Documents/lib/optuna_studies"
+TB_LOG_DIR = "C:/Users/xmatyc00/Diplomka/runs"
+STUDY_DIR = "C:/Users/xmatyc00/Diplomka/optuna_studies"
 
 
 
