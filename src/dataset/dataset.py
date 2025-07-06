@@ -426,7 +426,7 @@ class EGMDataset(Dataset):
             self.annotations = pd.concat([self.annotations, self.oversampled], ignore_index=True)
         self.annotations.reset_index(drop=True, inplace=True)
         
-        controls_mask = self.annotations['recurrence'] == 0
+        controls_mask = self.annotations['reccurence'] == 0
 
         if controls_time_shift > 0:
             # Shift the controls by a random amount of time
@@ -434,6 +434,7 @@ class EGMDataset(Dataset):
         
         if controls_time_gaussian_std > 0:
             noise = self.np_rng.normal(loc=0, scale=controls_time_gaussian_std, size=controls_mask.sum())
+            noise = np.round(noise).astype(int)
             self.annotations.loc[controls_mask, 'days_to_event'] += noise
 
         # read the HDF files or collect filepaths
