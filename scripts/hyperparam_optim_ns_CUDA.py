@@ -154,7 +154,7 @@ def objective(trial):
             segment_ms=SEGMENT_MS,
             filter_utilized=FILTER_UTILIZED,
             #oversampling_factor=OVERSAMPLING_FACTOR,
-            controls_time_shift=60,  # Shift controls by 60 days
+            #controls_time_shift=60,  # Shift controls by 60 days
             fold=fold,
             random_seed=SEED,
         )
@@ -169,7 +169,7 @@ def objective(trial):
             segment_ms=SEGMENT_MS,
             filter_utilized=FILTER_UTILIZED,
             #oversampling_factor=OVERSAMPLING_FACTOR,
-            controls_time_shift=60,  # Shift controls by 60 days
+            #controls_time_shift=60,  # Shift controls by 60 days
             fold=fold,
             random_seed=SEED,
         )
@@ -360,7 +360,7 @@ def objective(trial):
 
 if __name__ == "__main__":
 
-    num_trials = 120
+    num_trials = 150
 
     sampler = optuna.samplers.TPESampler(multivariate=True, seed=3052001, n_startup_trials=20)
 
