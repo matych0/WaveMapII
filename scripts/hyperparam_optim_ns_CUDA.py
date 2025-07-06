@@ -360,7 +360,7 @@ def objective(trial):
 
 if __name__ == "__main__":
 
-    num_trials = 200
+    num_trials = 120
 
     sampler = optuna.samplers.TPESampler(multivariate=True, seed=3052001, n_startup_trials=20)
 
