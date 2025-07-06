@@ -602,9 +602,9 @@ class AttentionNetGated(nn.Module):
     Gated Attention Network with optional Dropout.
 
     Args:
-        input_size: Dimension of the input.
-        middle_size: Dimension of the hidden layer.
-        output_size: Dimension of the output.
+        input_size(int): Dimension of the input.
+        middle_size(int): Dimension of the hidden layer.
+        output_size(int): Dimension of the output.
         dropout (bool): Whether to use dropout.
         dropout_prob (float): Dropout probability.
     """
@@ -639,6 +639,16 @@ class AttentionPooling(nn.Module):
                  output_size,
                  dropout=False,
                  dropout_prob=0.25):
+        """
+        Attention pooling layer that applies a projection, attention mechanism, and a final prediction layer.
+        Args:
+            input_size (int): Size of the input features.
+            hidden_size (int): Size of the hidden layer after projection.
+            attention_hidden_size (int): Size of the hidden layer in the attention mechanism.
+            output_size (int): Size of the output (usually 1 for cox regression risk score).
+            dropout (bool): Whether to apply dropout.   
+            dropout_prob (float): Probability of dropout if applied.
+        """
         super().__init__()
 
         self.projection = nn.Sequential(
@@ -651,7 +661,10 @@ class AttentionPooling(nn.Module):
         self.attention_pool = AttentionNetGated(hidden_size, attention_hidden_size, 1, dropout=dropout,
                                                 dropout_prob=dropout_prob)
 
-        self.predictor = nn.Linear(hidden_size, output_size)
+        self.predictor = nn.Sequential(
+            nn.Dropout(dropout_prob) if dropout else nn.Identity(),
+            nn.Linear(hidden_size, output_size)
+        )
 
     def forward(self, h, mask=None):
         h = self.projection(h)
@@ -667,6 +680,108 @@ class AttentionPooling(nn.Module):
         risk = self.predictor(avg_instances)
 
         return risk, attention_weights_softmax
+
+
+class MaxPoolingBlock(nn.Module):
+    """
+    MaxPooling aggregation followed by a fully connected layer to produce a single risk score.
+
+    Args:
+        input_size (int): Size of the input features.
+        output_size (int): Size of the output (usually 1 for cox regression risk score).
+    """
+    def __init__(self, input_size, hidden_size, output_size=1, dropout=False, dropout_prob=0.25):
+        super(MaxPoolingBlock, self).__init__()
+        
+        self.projection = nn.Sequential(
+            nn.Linear(input_size, hidden_size),
+            nn.ReLU(),
+            nn.Dropout(dropout_prob) if dropout else nn.Identity()
+        )
+        
+        self.predictor = nn.Sequential(
+            nn.Dropout(dropout_prob) if dropout else nn.Identity(),
+            nn.Linear(hidden_size, output_size)
+        )
+
+    def forward(self, h, mask=None):
+        """
+        Args:
+            h (torch.Tensor): Input tensor of shape (batch_size, num_instances, feature_dim).
+            mask (torch.Tensor, optional): Binary mask of shape (batch_size, num_instances) where 1=valid, 0=padding.
+
+        Returns:
+            torch.Tensor: Output tensor of shape (batch_size, output_size)
+        """
+        
+        h = self.projection(h)  # shape: (batch_size, num_instances, hidden_size)
+
+        if mask is not None:
+            # Mask invalid positions by setting them to -inf before max
+            mask = mask.unsqueeze(-1)  # (batch_size, num_instances, 1)
+            h = h.masked_fill(mask == 0, float('-inf'))
+
+        # Max pooling across instances (dim=1)
+        max_pooled, _ = torch.max(h, dim=1)  # shape: (batch_size, feature_dim)
+
+        # Fully connected layer to get final score
+        risk = self.predictor(max_pooled)  # shape: (batch_size, output_size)
+
+        return risk
+
+
+class AveragePoolingBlock(nn.Module):
+    """
+    AveragePooling aggregation followed by a fully connected layer to produce a single risk score.
+
+    Args:
+        input_size (int): Size of the input features.
+        output_size (int): Size of the output (usually 1 for cox regression risk score).
+    """
+    def __init__(self, input_size, hidden_size, output_size=1, dropout=False, dropout_prob=0.25):
+        super(AveragePoolingBlock, self).__init__()
+        
+        self.projection = nn.Sequential(
+            nn.Linear(input_size, hidden_size),
+            nn.ReLU(),
+            nn.Dropout(dropout_prob) if dropout else nn.Identity()
+        )
+        
+        self.predictor = nn.Sequential(
+            nn.Dropout(dropout_prob) if dropout else nn.Identity(),
+            nn.Linear(hidden_size, output_size)
+        )
+
+    def forward(self, h, mask=None):
+        """
+        Args:
+            h (torch.Tensor): Input tensor of shape (batch_size, num_instances, feature_dim).
+            mask (torch.Tensor, optional): Binary mask of shape (batch_size, num_instances), where 1=valid, 0=padding.
+
+        Returns:
+            torch.Tensor: Output tensor of shape (batch_size, output_size)
+        """
+        
+        h = self.projection(h)
+
+        if mask is not None:
+            # Expand mask for broadcasting
+            mask = mask.unsqueeze(-1).float()  # (batch_size, num_instances, 1)
+            h = h * mask  # Zero out invalid positions
+
+            # Compute mean only over valid instances
+            summed = torch.sum(h, dim=1)  # (batch_size, feature_dim)
+            counts = torch.clamp(mask.sum(dim=1), min=1e-6)  # (batch_size, 1) to avoid division by zero
+            avg_pooled = summed / counts
+        else:
+            # Simple mean across instances
+            avg_pooled = torch.mean(h, dim=1)
+
+        # Fully connected layer to get final score
+        risk = self.predictor(avg_pooled)  # shape: (batch_size, output_size)
+
+        return risk
+
 
 
 
