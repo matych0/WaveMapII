@@ -23,7 +23,7 @@ ANNOTATION_DIR = "D:/Matych/HDF5/annotations_complete.csv"
 DATA_DIR = "D:/Matych/HDF5"
 
 SAVE_MODEL_PATH = "D:/Matych/saved_models/AB_testing"
-STUDY_NAME = "trial_52_reproduction"
+STUDY_NAME = "trial_28_reproduction"
 TB_LOG_DIR = "C:/Users/xmatyc00/Diplomka/runs/AB_testing"
 
 #hyperparameters
@@ -43,13 +43,13 @@ CHUNK_SIZE = 8
 FOLDS = 3
 
 # Optimized hyperparameters
-DROPOUT = 0.25
-COX_REGULARIZATION = 0.1
-LEARNING_RATE = 0.01
-WEIGHT_DECAY = 0.0001
+DROPOUT = 0.5
+COX_REGULARIZATION = 0.001
+LEARNING_RATE = 0.0001
+WEIGHT_DECAY = 0.1
 BATCH_SIZE = 16
-NUM_EPOCHS = 112
-N_CONTROLS = 4
+NUM_EPOCHS = 218
+N_CONTROLS = 8
 
 
 def sample_cases_controls(risks, events, durations, n_controls):
