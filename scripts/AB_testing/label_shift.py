@@ -44,12 +44,12 @@ FOLDS = 3
 
 # Optimized hyperparameters
 DROPOUT = 0.5
-COX_REGULARIZATION = 0.001
-LEARNING_RATE = 0.0001
-WEIGHT_DECAY = 0.1
-BATCH_SIZE = 16
-NUM_EPOCHS = 218
-N_CONTROLS = 8
+COX_REGULARIZATION = 0.01
+LEARNING_RATE = 0.01
+WEIGHT_DECAY = 0.0001
+BATCH_SIZE = 32
+NUM_EPOCHS = 264
+N_CONTROLS = 4
 
 
 def sample_cases_controls(risks, events, durations, n_controls):
