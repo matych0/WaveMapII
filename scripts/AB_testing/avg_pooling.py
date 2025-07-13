@@ -23,7 +23,7 @@ ANNOTATION_DIR = "D:/Matych/HDF5/annotations_complete.csv"
 DATA_DIR = "D:/Matych/HDF5"
 
 SAVE_MODEL_PATH = "D:/Matych/saved_models/AB_testing"
-STUDY_NAME = "max_pooling"
+STUDY_NAME = "avg_pooling"
 TB_LOG_DIR = "C:/Users/xmatyc00/Diplomka/runs/AB_testing"
 
 #hyperparameters
@@ -43,13 +43,13 @@ CHUNK_SIZE = 8
 FOLDS = 3
 
 # Optimized hyperparameters
-DROPOUT = None
-COX_REGULARIZATION = None
-LEARNING_RATE = None
-WEIGHT_DECAY = None
-BATCH_SIZE = None
-NUM_EPOCHS = None
-N_CONTROLS = None
+DROPOUT = 0.5
+COX_REGULARIZATION = 0.01
+LEARNING_RATE = 0.01
+WEIGHT_DECAY = 0.0001
+BATCH_SIZE = 32
+NUM_EPOCHS = 264
+N_CONTROLS = 4
 
 
 def sample_cases_controls(risks, events, durations, n_controls):

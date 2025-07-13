@@ -23,7 +23,7 @@ ANNOTATION_DIR = "D:/Matych/HDF5/annotations_complete.csv"
 DATA_DIR = "D:/Matych/HDF5"
 
 SAVE_MODEL_PATH = "D:/Matych/saved_models/AB_testing"
-STUDY_NAME = "trial_28_reproduction"
+STUDY_NAME = "sampling_1v1_tryout"
 TB_LOG_DIR = "C:/Users/xmatyc00/Diplomka/runs/AB_testing"
 
 #hyperparameters
@@ -44,18 +44,20 @@ FOLDS = 3
 
 # Optimized hyperparameters
 DROPOUT = 0.5
-COX_REGULARIZATION = 0.001
-LEARNING_RATE = 0.0001
-WEIGHT_DECAY = 0.1
-BATCH_SIZE = 16
-NUM_EPOCHS = 218
-N_CONTROLS = 8
+COX_REGULARIZATION = 0.01
+LEARNING_RATE = 0.01
+WEIGHT_DECAY = 0.0001
+BATCH_SIZE = 32
+NUM_EPOCHS = 264
+N_CONTROLS = 4
 
 
 def get_predictions(loader, model):
     all_risks = []
     all_durations = []
     all_events = []
+
+    device = next(model.parameters()).device
 
     model.eval()
     with torch.no_grad():
@@ -64,6 +66,11 @@ def get_predictions(loader, model):
 
             durations = torch.tensor(durations, dtype=torch.float32)
             events = torch.tensor(events, dtype=torch.bool)
+
+            durations = durations.to(device)
+            events = events.to(device)
+            traces = traces.to(device)
+            traces_masks = traces_masks.to(device)
 
             risks, _ = model(traces, traces_masks)
 
@@ -171,7 +178,6 @@ def cross_val(folds=3):
             #oversampling_factor=OVERSAMPLING_FACTOR,
             #controls_time_shift=60,  # Shift controls by 60 days
             cross_val_fold=fold,
-            random_seed=SEED,
         )
         
         
@@ -200,8 +206,7 @@ def cross_val(folds=3):
             filter_utilized=FILTER_UTILIZED,
             #oversampling_factor=OVERSAMPLING_FACTOR,
             #controls_time_shift=60,  # Shift controls by 60 days
-            cross_val_fold=fold,
-            random_seed=SEED,
+            cross_val_fold=fold
         )
 
         # Create DataLoader
