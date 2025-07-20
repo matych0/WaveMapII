@@ -9,7 +9,7 @@
             "name": "Python: Run Module",
             "type": "debugpy",
             "request": "launch",
-            "module": "scripts.cross_validation_new_sampling",
+            "module": "scripts.AUC_computation",
             "console": "integratedTerminal"
           }
     ]
