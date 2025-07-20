@@ -23,7 +23,7 @@ ANNOTATION_DIR = "D:/Matych/HDF5/annotations_complete.csv"
 DATA_DIR = "D:/Matych/HDF5"
 
 SAVE_MODEL_PATH = "D:/Matych/saved_models/AB_testing"
-STUDY_NAME = "sampling_1v1_tryout"
+STUDY_NAME = "sampling_1v1"
 TB_LOG_DIR = "C:/Users/xmatyc00/Diplomka/runs/AB_testing"
 
 #hyperparameters
@@ -39,7 +39,7 @@ NORMALIZATION = "BatchN2D"
 FILTER_UTILIZED = True
 SEGMENT_MS = 100
 OVERSAMPLING_FACTOR = None
-CHUNK_SIZE = 8
+CHUNK_SIZE = 4
 FOLDS = 3
 
 # Optimized hyperparameters
@@ -47,7 +47,7 @@ DROPOUT = 0.5
 COX_REGULARIZATION = 0.01
 LEARNING_RATE = 0.01
 WEIGHT_DECAY = 0.0001
-BATCH_SIZE = 32
+BATCH_SIZE = 16
 NUM_EPOCHS = 264
 N_CONTROLS = 4
 
@@ -215,7 +215,7 @@ def cross_val(folds=3):
         
         val_batch_size = BATCH_SIZE if BATCH_SIZE <= CHUNK_SIZE else CHUNK_SIZE
         
-        train_dataloader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, generator=generator, collate_fn=collate_padding_merged)
+        train_dataloader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, generator=generator, drop_last=True, collate_fn=collate_padding_merged)
         
         train_cindex_dataloader = DataLoader(train_cindex_dataset, batch_size=val_batch_size, shuffle=False, collate_fn=collate_validation)
         val_cindex_dataloader = DataLoader(val_cindex_dataset, batch_size=val_batch_size, shuffle=False, collate_fn=collate_validation)
