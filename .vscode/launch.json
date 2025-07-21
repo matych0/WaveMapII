@@ -9,7 +9,7 @@
             "name": "Python: Run Module",
             "type": "debugpy",
             "request": "launch",
-            "module": "scripts.AUC_computation",
+            "module": "scripts.cindex_auc_automatic",
             "console": "integratedTerminal"
           }
     ]
