@@ -679,7 +679,7 @@ class AttentionPooling(nn.Module):
         avg_instances = torch.matmul(attention_weights_softmax, h)
         risk = self.predictor(avg_instances)
 
-        return risk, attention_weights_softmax
+        return risk, (h, attention_weights_softmax)
 
 
 class MaxPoolingBlock(nn.Module):

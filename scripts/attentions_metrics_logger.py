@@ -79,35 +79,41 @@ def get_predictions(loader, model):
 
     complete_inference_df = pd.DataFrame(columns=[
         "patient_path",
+        "risk",
         "trace_id",
         "attention",
         "peak_to_peak",
         "extrema_count",
-        "entropy"
+        "entropy",
         "dominant_frequency",
-        #"feature_vector"
+        "feature_vector",
+        "traces"
     ])
 
     model.eval()
     with torch.no_grad():
         for batch in loader:
-            durations, events, traces, traces_masks, filepaths, trace_indices, peak_to_peaks = batch
+            durations, events, traces, traces_orig, traces_masks, filepaths, trace_indices, peak_to_peaks = batch
 
             durations = torch.tensor(durations, dtype=torch.float32)
             events = torch.tensor(events, dtype=torch.bool)
 
-            risks, attentions = model(traces, traces_masks)
+            risks, (features, attentions) = model(traces, traces_masks)
 
             for i in range(len(durations)):
                 patient_path = filepaths[i]
+                risk = risks[i].item()
                 trace_id = trace_indices[i]
                 traces_mask = traces_masks[i].squeeze().cpu().numpy()
-                egms = traces[i].squeeze().cpu().numpy()
+                egms = traces_orig[i].squeeze().cpu().numpy()
                 egms = egms[traces_mask == 1]  # Filter traces based on mask
                 attention_array = attentions[i].squeeze().cpu().numpy()
                 attention_array = attention_array[traces_mask == 1]
-                #feature_vector = traces[i].squeeze().cpu().numpy()
+                feature_vectors = features[i].squeeze().cpu().numpy()
+                feature_vectors = feature_vectors[traces_mask == 1]
                 
+                
+
                 # 1) Calculate peak-to-peak for the filtered EGM
                 ptp = peak_to_peaks[i]
                 ptp_np = np.ptp(egms, axis=1)  # Peak-to-peak value of the EGM signal
@@ -125,13 +131,15 @@ def get_predictions(loader, model):
 
                 inference_df = pd.DataFrame({
                     "patient_path": [patient_path]* len(attention_array),
+                    "risk": [risk]* len(attention_array),
                     "trace_id": trace_id,
                     "attention": attention_array,
                     "peak_to_peak": ptp_np,
                     "extrema_count": extrema_count,
                     "entropy": entropies,
                     "dominant_frequency": dom_freqs,
-                    #"feature_vector": feature_vector
+                    "feature_vector": [feature_vectors[i] for i in range(len(feature_vectors))],
+                    "traces": [egms[i] for i in range(len(egms))],
                 })
 
                 # Append the predictions to the complete inference DataFrame
@@ -159,20 +167,37 @@ def plot_attention(inference_df, bins=30):
 
 
 def plot_low_high_risk(inference_df, n_patients=10):
-    low_risk_df = inference_df.nsmallest(n_patients, "risk")
-    high_risk_df = inference_df.nlargest(n_patients, "risk")
-    low_risk_attentions = np.concatenate(low_risk_df["attentions"].values, axis=0)
-    high_risk_attentions = np.concatenate(high_risk_df["attentions"].values, axis=0)
+    # Step 1: Compute unique patient-level risks
+    patient_risks = (
+        inference_df.groupby("patient_path")["risk"]
+        .mean()
+        .reset_index()
+    )
 
+    # Step 2: Select patient paths with lowest and highest risks
+    low_risk_patients = patient_risks.nsmallest(n_patients, "risk")["patient_path"].values
+    high_risk_patients = patient_risks.nlargest(n_patients, "risk")["patient_path"].values
+
+    # Step 3: Filter the inference_df for those patients
+    low_risk_df = inference_df[inference_df["patient_path"].isin(low_risk_patients)]
+    high_risk_df = inference_df[inference_df["patient_path"].isin(high_risk_patients)]
+
+    # Step 4: Extract and concatenate attention weights
+    low_risk_attentions = low_risk_df["attention"].values
+    high_risk_attentions = high_risk_df["attention"].values
+
+    # Step 5: Prepare DataFrame for Seaborn
     attentions_df = pd.DataFrame({
-    'attention': np.concatenate([low_risk_attentions, high_risk_attentions]),
-    'class': ['low risk'] * len(low_risk_attentions) + ['high risk'] * len(high_risk_attentions)
+        "attention": np.concatenate([low_risk_attentions, high_risk_attentions]),
+        "class": ["low risk"] * len(low_risk_attentions) + ["high risk"] * len(high_risk_attentions)
     })
 
+    # Step 6: Plot
     g = sns.histplot(data=attentions_df, x="attention", hue="class", bins=30, multiple="dodge", palette="vlag")
     g.set_yscale("log")
     plt.xlabel("Attention Weight")
     plt.ylabel("Frequency")
+    plt.title(f"Attention Weights for {n_patients} Lowest and Highest Risk Patients")
     plt.show()
 
 
@@ -210,34 +235,32 @@ def plot_random_signals(signals, attention_weights):
     plt.show()
 
 
-
-
-
-
 def plot_attentions(attentions):
     pass
 
 if __name__ == "__main__":
-    ANNOTATION_DIR = "/media/guest/DataStorage/WaveMap/HDF5/annotations_complete.csv"
-    DATA_DIR = "/media/guest/DataStorage/WaveMap/HDF5"
+    ANNOTATION_DIR = "D:/HDF5/annotations_complete.csv"
+    DATA_DIR = "D:/HDF5"
     SEED = 3052001
-    #hyperparameters
+    
+    # hyperparameters
     KERNEL_SIZE = (1, 5)
     STEM_KERNEL_SIZE = (1, 17)
     BLOCKS = [3, 4, 6, 3]
     FEATURES = [16, 32, 64, 128]
+    PROJECTION_NODES = 128
+    ATTENTION_NODES = 64
     ACTIVATION = "LReLU"
     DOWNSAMPLING_FACTOR = 2
     NORMALIZATION = "BatchN2D"
     FILTER_UTILIZED = True
     SEGMENT_MS = 100
     OVERSAMPLING_FACTOR = None
-    GRAD_CLIP = 1.0
+    CHUNK_SIZE = 8
+    FOLDS = 3
     
-    fold = 1
-    MODEL_DIR = f"/home/guest/lib/data/saved_models/cross_val_merged_2_fold_{fold}.pth"
     
-    batch_size = 20
+    batch_size = 8
 
     tanh_normalize = TanhNormalize(factor=5)
     val_transform = transforms.Compose([
@@ -260,27 +283,28 @@ if __name__ == "__main__":
     # Define parameters for AMIL
     amil_params = {
         "input_size": FEATURES[-1],
-        "hidden_size": 128,
-        "attention_hidden_size": 64,
+        "hidden_size": PROJECTION_NODES,
+        "attention_hidden_size": ATTENTION_NODES,
         "output_size": 1,
         "dropout": True,
         "dropout_prob": 0.2,
     }
-    cindex = ConcordanceIndex()
 
     complete_inference_df = pd.DataFrame(columns=[
         "patient_path",
+        "risk",
         "trace_id",
         "attention",
         "peak_to_peak",
         "extrema_count",
         "entropy",
         "dominant_frequency",
-        #"feature_vector"
+        "feature_vector",
+        "traces"
     ])
 
 
-    for fold in range(3):
+    for fold in range(FOLDS):
         
         val_dataset = ValidationDatasetInference(
             annotations_file=ANNOTATION_DIR,
@@ -296,7 +320,7 @@ if __name__ == "__main__":
         
         val_dataloader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_validation_inference)
 
-        model_dir_fold = f"/home/guest/lib/data/saved_models/cross_val_merged_2_fold_{fold}.pth"
+        model_dir_fold = f"D:/saved_models/best_trial/hyperparam_optim_mult_controls_CUDA_trial_127_fold_{fold}.pth"
 
         model = CoxAttentionResnet(resnet_params, amil_params)
         model.load_state_dict(torch.load(model_dir_fold, map_location='cpu'))
@@ -304,6 +328,8 @@ if __name__ == "__main__":
         model.eval()
 
         val_inference_df = get_predictions(val_dataloader, model)
+        
+        print(f"Fold {fold} - Inference DataFrame shape: {val_inference_df.shape}")
 
         complete_inference_df = pd.concat([complete_inference_df, val_inference_df], ignore_index=True)
         #concordance_val = cindex(estimate=val_preds.view(-1), event=val_events.view(-1), time=val_durations.view(-1))
@@ -311,6 +337,7 @@ if __name__ == "__main__":
         #print(f"Concordance Index on Validation Set: {concordance_val:.4f}")
 
     # Save the complete inference DataFrame to a CSV file
-    complete_inference_df.to_csv("/home/guest/lib/data/post_analysis/inference_results.csv", index=False)
+    inference_df_export = complete_inference_df[["patient_path", "trace_id", "attention", "peak_to_peak", "extrema_count", "entropy", "dominant_frequency"]]
+    inference_df_export.to_csv("C:/Users/marti/Documents/Diplomka/results/post_analysis/inference_df_export.csv", index=False)
 
     print("Čau, ahoj")

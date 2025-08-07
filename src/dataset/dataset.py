@@ -25,8 +25,8 @@ def read_hdf(
             return traces, fs
         else:
             return traces
-          
-    
+        
+        
 def compute_LAT_indices(t_LAT, t_last, fs, num_samples):
     """
     Computes the sample indices where LAT events occur.
@@ -373,13 +373,17 @@ class ValidationDatasetInference(Dataset):
             if self.segment_ms:
                 case_indices = compute_LAT_indices(t_amp, t_last, fs, traces.shape[1])
                 traces = segment_signals(traces, case_indices, self.segment_ms, fs)
-                
+        
+        traces_orig = traces.copy()
+        traces_orig = torch.from_numpy(traces_orig)
+
         if self.transform:
             traces = self.transform(traces)
 
         traces = torch.from_numpy(traces)
+        
 
-        return duration, event, traces, filepath, trace_indices, peak_to_peak
+        return duration, event, traces, traces_orig, filepath, trace_indices, peak_to_peak
 
 
 class EGMDataset(Dataset):
