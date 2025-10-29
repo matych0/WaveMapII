@@ -1,30 +1,32 @@
-import torch
-import torch.optim as optim
-from torchvision import transforms
-from transformers import get_cosine_schedule_with_warmup
-from torch.utils.data import DataLoader
-from torch.utils.tensorboard import SummaryWriter
-from src.dataset.dataset import HDFDataset, ValidationDataset
-from src.dataset.collate import collate_padding_merged, collate_validation
-from model.cox_mil_resnet import CoxAttentionResnet
-from losses.loss import CoxCCLoss
-from src.transforms.transforms import (BaseTransform, RandomAmplifier, RandomGaussian,
-                                       RandomTemporalScale, RandomShift, TanhNormalize,
-                                       RandomPolarity)
-import numpy as np
-from torchsurv.metrics.cindex import ConcordanceIndex
 import os
 
+import numpy as np
+import torch
+import torch.optim as optim
+from torch.utils.data import DataLoader
+from torch.utils.tensorboard import SummaryWriter
+from torchsurv.metrics.cindex import ConcordanceIndex
+from torchvision import transforms
+from transformers import get_cosine_schedule_with_warmup
+
+from losses.loss import CoxCCLoss
+from model.cox_mil_resnet import CoxAttentionResnet
+from src.dataset.collate import collate_padding_merged, collate_validation
+from src.dataset.dataset import HDFDataset, ValidationDataset
+from src.transforms.transforms import (BaseTransform, RandomAmplifier,
+                                       RandomGaussian, RandomPolarity,
+                                       RandomShift, RandomTemporalScale,
+                                       TanhNormalize)
 
 #Set seed
 SEED = 3052001
 
-ANNOTATION_DIR = "D:/Matych/HDF5/annotations_complete.csv"
-DATA_DIR = "D:/Matych/HDF5"
+ANNOTATION_DIR = ""
+DATA_DIR = ""
 
-SAVE_MODEL_PATH = "D:/Matych/saved_models/AB_testing"
+SAVE_MODEL_PATH = ""
 STUDY_NAME = "sampling_1v1"
-TB_LOG_DIR = "C:/Users/xmatyc00/Diplomka/runs/AB_testing"
+TB_LOG_DIR = ""
 
 #hyperparameters
 KERNEL_SIZE = (1, 5)
@@ -161,7 +163,6 @@ def cross_val(folds=3):
             readjustonce=True,
             segment_ms=SEGMENT_MS,
             filter_utilized=FILTER_UTILIZED,
-            #oversampling_factor=OVERSAMPLING_FACTOR,
             cross_val_fold=fold,
             random_seed=SEED,
         )
@@ -175,25 +176,8 @@ def cross_val(folds=3):
             readjustonce=True,
             segment_ms=SEGMENT_MS,
             filter_utilized=FILTER_UTILIZED,
-            #oversampling_factor=OVERSAMPLING_FACTOR,
-            #controls_time_shift=60,  # Shift controls by 60 days
             cross_val_fold=fold,
         )
-        
-        
-        """ val_loss_dataset = HDFDataset(
-            annotations_file=ANNOTATION_DIR,
-            data_dir=DATA_DIR,
-            startswith="LA",
-            train=False,
-            transform=val_transform,
-            readjustonce=True,
-            segment_ms=SEGMENT_MS,
-            filter_utilized=FILTER_UTILIZED,
-            #oversampling_factor=OVERSAMPLING_FACTOR,
-            cross_val_fold=fold,
-            random_seed=SEED,
-        ) """
 
         val_cindex_dataset = ValidationDataset(
             annotations_file=ANNOTATION_DIR,
@@ -204,8 +188,6 @@ def cross_val(folds=3):
             readjustonce=True,
             segment_ms=SEGMENT_MS,
             filter_utilized=FILTER_UTILIZED,
-            #oversampling_factor=OVERSAMPLING_FACTOR,
-            #controls_time_shift=60,  # Shift controls by 60 days
             cross_val_fold=fold
         )
 
@@ -232,7 +214,7 @@ def cross_val(folds=3):
         scheduler = get_cosine_schedule_with_warmup(
             optimizer,
             num_warmup_steps=NUM_EPOCHS // 10,
-            num_training_steps=NUM_EPOCHS, # total number of steps (warmup + cosine decay)
+            num_training_steps=NUM_EPOCHS,
         )
         
         # Training loop
@@ -250,7 +232,7 @@ def cross_val(folds=3):
 
                     accumulation_steps = BATCH_SIZE // CHUNK_SIZE
                     optimizer.zero_grad()
-                    batch_loss = 0.0  # To accumulate loss for logging
+                    batch_loss = 0.0 
                     
                     case_traces, control_traces = torch.chunk(traces, chunks=2, dim=0)
                     case_masks, control_masks = torch.chunk(masks, chunks=2, dim=0)
@@ -313,7 +295,6 @@ def cross_val(folds=3):
 
             scheduler.step()
 
-            #Continue here ----
             # Training C-index
             train_preds , train_durations, train_events = get_predictions(train_cindex_dataloader, model)
             concordance_train = cindex(estimate=train_preds.view(-1), event=train_events.view(-1), time=train_durations.view(-1))

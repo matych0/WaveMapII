@@ -1,9 +1,10 @@
-from model import building_blocks as bb
+from typing import List, Tuple, Union
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Optional, List, Tuple, Union
-from model.building_blocks import AttentionPooling
+
+from model import building_blocks as bb
 
 
 class LocalActivationResNet(nn.Module):
@@ -112,46 +113,28 @@ class LocalActivationResNet(nn.Module):
         
         # Global average pooling    
         return torch.mean(x,dim=3,keepdim=False)
-    
-    
+        
     
 if __name__ == "__main__":
     
-    x = torch.rand([10,1,40,2035])
+    x = torch.rand([10,1,400,203]) # [batch, channels, instances, samples]
     
     resnet = LocalActivationResNet(
         in_features=1,
         kernel_size=(1,5),
         stem_kernel_size=(1,17),
-        blocks=[9,12,18,9],
+        blocks=[3,4,6,3],
         features=[16,32,64,128],
         activation="LReLU",
         normalization="BatchN2D",
-        downsampling_factor=4,
+        downsampling_factor=2,
         preactivation=False,
         trace_stages=True
     )
-
     
     x = resnet(x)
     print("ResNet output________")
     print(x.shape)
     
-    x = x.transpose(-2,-1)
-    print("Transpose__________")
-    print(x.shape)
-    
-    amil = AttentionPooling(
-        input_size=128,
-        hidden_size=128,
-        attention_hidden_size=64,
-        output_size=1,
-        dropout=False,
-        dropout_prob=0.25
-    )
-    
-    risk, a = amil(x)
-    print("AMIL output________________")
-    print(risk)
-    print(a.shape)
+
     

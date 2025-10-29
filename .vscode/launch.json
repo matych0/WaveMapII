@@ -9,7 +9,7 @@
             "name": "Python: Run Module",
             "type": "debugpy",
             "request": "launch",
-            "module": "scripts.attentions_metrics_logger",
+            "module": "src.dataset.dataset",
             "console": "integratedTerminal"
           }
     ]

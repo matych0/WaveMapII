@@ -1,11 +1,11 @@
-import os
 import glob
+import os
+
 import h5py
 import numpy as np
 import pandas as pd
 import torch
 from torch.utils.data import Dataset
-from torch.utils.data import DataLoader
 
 
 def read_hdf(
@@ -29,7 +29,7 @@ def read_hdf(
         
 def compute_LAT_indices(t_LAT, t_last, fs, num_samples):
     """
-    Computes the sample indices where LAT events occur.
+    Computes the sample indices where LAT occur.
 
     Parameters:
     t_amp (np.ndarray): Array of Unix timestamps when amplitude events occur.
@@ -69,7 +69,6 @@ def segment_signals(signals, indices, segment_ms, fs):
         central_sample = indices[i]
         start, end = (int(max(central_sample - left_window, 0)), int(min(central_sample + right_window, T)))
 
-        # Handle cases where the segment would be cut off at the beginning or end
         segment = signals[i, start:end]
 
         # If the extracted segment is shorter than expected, pad with zeros
@@ -82,10 +81,10 @@ def segment_signals(signals, indices, segment_ms, fs):
 
 
 def collect_filepaths_and_maps(data, data_dir, startswith, readjustonce, segment_ms, filter_utilized):
-    filepaths, maps, = list(), list()
+    """ Collects filepaths and maps from the dir."""
+    filepaths, maps = list(), list()
     for study_id in data["eid"].values:
         file_fullpath = glob.glob(os.path.join(data_dir, study_id, f"{startswith}*"), recursive=False)[0]
-        #file_fullpath = os.path.join(file_fullpath, os.path.basename(file_fullpath + ".hdf"))
         filepaths.append(file_fullpath)
         if readjustonce:
             traces, fs, metadata = read_hdf(file_fullpath, return_fs=True, metadata_keys=["rov LAT", "end time", "utilized"])
@@ -97,7 +96,6 @@ def collect_filepaths_and_maps(data, data_dir, startswith, readjustonce, segment
             if segment_ms:
                 indices = compute_LAT_indices(t_amp, t_last, fs, traces.shape[1])
                 traces = segment_signals(traces, indices, segment_ms, fs)
-                #traces = segmentation(segment_ms, traces, fs)
             maps.append(traces)
             
     if readjustonce:
@@ -107,10 +105,10 @@ def collect_filepaths_and_maps(data, data_dir, startswith, readjustonce, segment
 
 
 def collect_filepaths_and_maps_inference(data, data_dir, startswith, readjustonce, segment_ms, filter_utilized):
+    """ Collects filepaths and maps from the dir for inference purpose."""
     filepaths, maps, all_trace_indices, all_peak_to_peak = list(), list(), list(), list()
     for study_id in data["eid"].values:
         file_fullpath = glob.glob(os.path.join(data_dir, study_id, f"{startswith}*"), recursive=False)[0]
-        #file_fullpath = os.path.join(file_fullpath, os.path.basename(file_fullpath + ".hdf"))
         filepaths.append(file_fullpath)
         if readjustonce:
             traces, fs, metadata = read_hdf(file_fullpath, return_fs=True, metadata_keys=["rov LAT", "end time", "utilized", "peak2peak"])
@@ -134,8 +132,8 @@ def collect_filepaths_and_maps_inference(data, data_dir, startswith, readjustonc
     return filepaths, maps, all_trace_indices, all_peak_to_peak
 
 
-
 class HDFDataset(Dataset):
+    """ Single-control training dataset."""
     def __init__(
             self,
             annotations_file: os.PathLike,
@@ -149,8 +147,7 @@ class HDFDataset(Dataset):
             filter_utilized: bool = False, 
             oversampling_factor: int = None,
             random_seed: int = 3052001,
-            cross_val_fold: int = None,
-            num_controls: int = 1,        
+            cross_val_fold: int = None,      
             ):
         
         self.data_dir = data_dir
@@ -171,7 +168,7 @@ class HDFDataset(Dataset):
         # get reccurence cases only
         self.reccurence = self.annotations[self.annotations['reccurence'] == 1]
         self.reccurence.reset_index(drop=True, inplace=True)
-        self.np_rng = np.random.default_rng(random_seed) # NumPy random generator
+        self.np_rng = np.random.default_rng(random_seed) 
 
         # Recurrence cases oversampling 
         if oversampling_factor:
@@ -182,8 +179,6 @@ class HDFDataset(Dataset):
         self.annotations = self.annotations.sort_values(by='days_to_event')
         self.annotations.reset_index(drop=True, inplace=True)
         self.time_array = self.annotations['days_to_event']
-
-        
         
         self.readjustonce = readjustonce
         self.num_traces = num_traces
@@ -201,9 +196,6 @@ class HDFDataset(Dataset):
         time = self.reccurence.at[idx, 'days_to_event']
         index = np.searchsorted(self.time_array, time)
         control_idx = self.np_rng.choice(range(index, self.annotations.shape[0]))
-        
-        control_time = self.annotations.at[control_idx, 'days_to_event']
-        # print(f"Case time: {time}, Control time: {control_time}")
         
         if self.readjustonce:
             case = self.case_maps[idx]
@@ -246,6 +238,7 @@ class HDFDataset(Dataset):
     
 
 class ValidationDataset(Dataset):
+    """ Single-control validation dataset."""
     def __init__(
             self,
             annotations_file: os.PathLike,
@@ -312,6 +305,7 @@ class ValidationDataset(Dataset):
     
 
 class ValidationDatasetInference(Dataset):
+    """ Validation dataset for inference and post-analysis, extracts more metadata."""
     def __init__(
             self,
             annotations_file: os.PathLike,
@@ -387,6 +381,7 @@ class ValidationDatasetInference(Dataset):
 
 
 class EGMDataset(Dataset):
+    """ Multiple-control training and validation dataset."""
     def __init__(
             self,
             annotations_file: os.PathLike,
@@ -482,53 +477,6 @@ class EGMDataset(Dataset):
         
         return traces, duration, event
 
-
-if __name__ == "__main__":
-    from collate import collate_padding, collate_validation, collate_padding_two_tensors, collate_padding_merged
-
-    annotation_filepath = "/media/guest/DataStorage/WaveMap/HDF5/annotations_complete.csv"
-    dataset_folderpath = "/media/guest/DataStorage/WaveMap/HDF5"
-
-    training_data = EGMDataset(
-        annotations_file=annotation_filepath,
-        data_dir=dataset_folderpath,
-        train=True,
-        cross_val_fold=0,
-        transform=None,            
-        startswith="LA",
-        readjustonce=False, 
-        num_traces=None,
-        segment_ms=100, 
-        filter_utilized=True,
-        oversampling_factor=4,          
-    )
-    
-    train_dataloader = DataLoader(training_data, batch_size=10, shuffle=True, collate_fn=collate_padding_merged)
-    
-    # for i in range(20):
-    traces, mask = next(iter(train_dataloader)) 
-    
-    print(f"Traces shape: {traces.shape}")
-    
-
-    """ validation_data = ValidationDataset(
-        annotations_file=annotation_filepath,
-        data_dir=dataset_folderpath,
-        transform=None,            
-        startswith="LA",
-        readjustonce=False, 
-        segment_ms=100,
-        filter_utilized=True,  
-        eval_data=False, 
-        #cross_val_fold=3,        
-    )
-
-    validation_dataloader = DataLoader(validation_data, batch_size=100, shuffle=False, collate_fn=collate_validation)
-
-    duration, event, traces, traces_masks = next(iter(validation_dataloader))
-    print(f"Durations: {duration}")
-    print(f"Events: {event}")
-    print(f"Traces shape: {traces.shape}") """
 
 
 

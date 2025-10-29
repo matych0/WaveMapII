@@ -11,7 +11,7 @@ csv_path = "C:/Users/marti/Documents/Diplomka/results/post_analysis/inference_df
 df = pd.read_csv(csv_path)
 
 #%%
-""" def label_attention(x):
+def label_attention(x):
     #if x >= 0.0021085963
         #return 'Very High'
     if x > 0.0015496228:
@@ -21,10 +21,10 @@ df = pd.read_csv(csv_path)
     else:
         return '0-95th percentile'
     
-df['Attention Level'] = df['attention'].apply(label_attention) """
+df['Attention Level'] = df['attention'].apply(label_attention)
 
 #%%
-df['Attention Level'] = pd.qcut(df['attention'], q=4, labels=['Q1', 'Q2', 'Q3', 'Q4'])
+#df['Attention Level'] = pd.qcut(df['attention'], q=4, labels=['Q1', 'Q2', 'Q3', 'Q4'])
     
 #%%
 df_melted = df[["peak_to_peak", "extrema_count", "entropy", "dominant_frequency", "Attention Level"]].melt(id_vars='Attention Level', var_name='parameter', value_name='value')

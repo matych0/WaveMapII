@@ -1,10 +1,11 @@
+from typing import Dict, Tuple
+
 import torch
 import torch.nn as nn
-from typing import Tuple, Dict
 
-from model.building_blocks import AttentionPooling, MaxPoolingBlock, AveragePoolingBlock
+from model.building_blocks import (AttentionPooling, AveragePoolingBlock,
+                                   MaxPoolingBlock)
 from model.pyramid_resnet import LocalActivationResNet
-
 
 
 class CoxAttentionResnet(nn.Module):

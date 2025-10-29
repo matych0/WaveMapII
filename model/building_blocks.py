@@ -1,8 +1,8 @@
+from typing import List, Optional, Tuple, Union
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-#from nnAudio import features
-from typing import Optional, List, Tuple, Union
 
 
 def get_activation(activation: str):
@@ -631,6 +631,7 @@ class AttentionNetGated(nn.Module):
         z = self.attention_z(uv)
         return z
 
+
 class AttentionPooling(nn.Module):
     def __init__(self,
                  input_size,
@@ -759,7 +760,7 @@ class AveragePoolingBlock(nn.Module):
             mask (torch.Tensor, optional): Binary mask of shape (batch_size, num_instances), where 1=valid, 0=padding.
 
         Returns:
-            torch.Tensor: Output tensor of shape (batch_size, output_size)
+            torch.Tensor: Output tensor of shape (batch_size, output_size, 1)
         """
         
         h = self.projection(h)
@@ -783,29 +784,10 @@ class AveragePoolingBlock(nn.Module):
         return risk
 
 
-
-
 if __name__ == "__main__":
-    """ conv_layer = Conv1dWrapper(
-        in_channels=16,
-        out_channels=32,
-        kernel_size=(1,3),
-        dilation=1,
-        normalization="BatchN2D",
-        activation="ReLU",
-        preactivation=True,
-    )
-    x = torch.randn(2,1,4000,2035)  # Batch size 8, 16 channels, sequence length 50
-    output = conv_layer(x) """
-    
-    
-    """ x = torch.randn(10,400,256)
-    attn_block = AttentionPooling(256,64,32,1)
+    x = torch.randn(10,400,128)
+    attn_block = AttentionPooling(128,128,64,1)
     output = attn_block(x)
-    print(output[0].shape) """
-    
-    x = torch.randn(10,1,400,1016)
-    filter = MaxAntialiasDownsampling(in_channels=1, out_channels=16, stride=4, normalization="BatchN2D")
-    output = filter(x)
-    print(output.shape)
+    print(output[0].shape)
+
     

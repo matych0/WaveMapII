@@ -1,4 +1,0 @@
-# @package collate
-_target_: src.dataset.collate.PaddedCollate
-dim: 1
-val: 0

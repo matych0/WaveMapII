@@ -1,30 +1,32 @@
-import torch
-import torch.optim as optim
-from torchvision import transforms
-from transformers import get_cosine_schedule_with_warmup
-from torch.utils.data import DataLoader
-from torch.utils.tensorboard import SummaryWriter
-from src.dataset.dataset import EGMDataset
-from src.dataset.collate import collate_padding
-from model.cox_mil_resnet import CoxAttentionResnet
-from losses.loss import CoxCCLoss
-from src.transforms.transforms import (BaseTransform, RandomAmplifier, RandomGaussian,
-                                       RandomTemporalScale, RandomShift, Normalize,
-                                       RandomPolarity)
-import numpy as np
-from torchsurv.metrics.cindex import ConcordanceIndex
 import os
 
+import numpy as np
+import torch
+import torch.optim as optim
+from torch.utils.data import DataLoader
+from torch.utils.tensorboard import SummaryWriter
+from torchsurv.metrics.cindex import ConcordanceIndex
+from torchvision import transforms
+from transformers import get_cosine_schedule_with_warmup
+
+from losses.loss import CoxCCLoss
+from model.cox_mil_resnet import CoxAttentionResnet
+from src.dataset.collate import collate_padding
+from src.dataset.dataset import EGMDataset
+from src.transforms.transforms import (BaseTransform, Normalize,
+                                       RandomAmplifier, RandomGaussian,
+                                       RandomPolarity, RandomShift,
+                                       RandomTemporalScale)
 
 #Set seed
 SEED = 3052001
 
-ANNOTATION_DIR = "D:/Matych/HDF5/annotations_complete.csv"
-DATA_DIR = "D:/Matych/HDF5"
+ANNOTATION_DIR = ""
+DATA_DIR = ""
 
-SAVE_MODEL_PATH = "D:/Matych/saved_models/AB_testing"
+SAVE_MODEL_PATH = ""
 STUDY_NAME = "min_max_normalization"
-TB_LOG_DIR = "C:/Users/xmatyc00/Diplomka/runs/AB_testing"
+TB_LOG_DIR = ""
 
 #hyperparameters
 KERNEL_SIZE = (1, 5)
@@ -264,11 +266,6 @@ def cross_val(folds=3):
             avg_train_loss = total_train_loss / len(train_dataloader)
             print(f"Fold {fold}, Epoch {epoch+1}/{NUM_EPOCHS}, Training loss: {avg_train_loss:.4f}")
             writer.add_scalar("Train loss", avg_train_loss, epoch)
-
-            #risks_tensor = torch.cat(epoch_risks, dim=0)
-            #writer.add_histogram("Train/Risks", risks_tensor, epoch)
-
-            #writer.add_histogram("Train/Attentions", attentions[0,:,:], epoch)
 
             current_lr = optimizer.param_groups[0]['lr']
             writer.add_scalar("Learning Rate", current_lr, epoch)

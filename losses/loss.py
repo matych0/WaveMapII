@@ -1,10 +1,10 @@
-from torch import nn
+from typing import Tuple
+
 import torch
 import torch.nn.functional as F
-from typing import Tuple
-from torch import Tensor
+from torch import Tensor, nn
 from torchtuples import TupleTree
-        
+
 
 class CoxLoss(nn.Module):
     def __init__(self):
@@ -71,6 +71,7 @@ class CoxCCLoss(torch.nn.Module):
         shrink {float} -- Shrinkage that encourage the net got give g_case and g_control
             closer to zero (a regularizer in a sense). (default: {0.})
         clamp {tuple} -- See code (default: {(-3e+38, 80.)})
+    https://github.com/havakv/pycox/blob/master/pycox/models/loss.py
     """
     def __init__(self, shrink: float = 0., clamp: Tuple[float, float] = (-3e+38, 80.)) -> Tensor:
         super().__init__()

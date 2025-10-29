@@ -1,33 +1,35 @@
-import optuna
 import os
-import torch
-import torch.optim as optim
-from torchvision import transforms
-from transformers import get_cosine_schedule_with_warmup
-from torch.utils.data import DataLoader
-from torch.utils.tensorboard import SummaryWriter
-from src.dataset.dataset import EGMDataset
-from src.dataset.collate import collate_padding
-from model.cox_mil_resnet import CoxAttentionResnet
-from losses.loss import CoxCCLoss
-from src.transforms.transforms import (BaseTransform, RandomAmplifier, RandomGaussian,
-                                       RandomTemporalScale, RandomShift, TanhNormalize,
-                                       RandomPolarity)
-import numpy as np
-from torchsurv.metrics.cindex import ConcordanceIndex
 from statistics import median
 
+import numpy as np
+import optuna
+import torch
+import torch.optim as optim
+from torch.utils.data import DataLoader
+from torch.utils.tensorboard import SummaryWriter
+from torchsurv.metrics.cindex import ConcordanceIndex
+from torchvision import transforms
+from transformers import get_cosine_schedule_with_warmup
+
+from losses.loss import CoxCCLoss
+from model.cox_mil_resnet import CoxAttentionResnet
+from src.dataset.collate import collate_padding
+from src.dataset.dataset import EGMDataset
+from src.transforms.transforms import (BaseTransform, RandomAmplifier,
+                                       RandomGaussian, RandomPolarity,
+                                       RandomShift, RandomTemporalScale,
+                                       TanhNormalize)
 
 #Set seed
 SEED = 3052001
 
-ANNOTATION_DIR = "D:/Matych/HDF5/annotations_complete.csv"
-DATA_DIR = "D:/Matych/HDF5"
+ANNOTATION_DIR = ""
+DATA_DIR = ""
 
-SAVE_MODEL_PATH = "D:/Matych/saved_models"
+SAVE_MODEL_PATH = ""
 STUDY_NAME = "hyperparam_optim_mult_controls_CUDA"
-TB_LOG_DIR = "C:/Users/xmatyc00/Diplomka/runs"
-STUDY_DIR = "C:/Users/xmatyc00/Diplomka/optuna_studies"
+TB_LOG_DIR = ""
+STUDY_DIR = ""
 
 
 
@@ -360,7 +362,7 @@ def objective(trial):
 
 if __name__ == "__main__":
 
-    num_trials = 150
+    num_trials = 160
 
     sampler = optuna.samplers.TPESampler(multivariate=True, seed=3052001, n_startup_trials=20)
 
