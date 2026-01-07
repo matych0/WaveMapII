@@ -1,0 +1,43 @@
+services:
+  train:
+    build: .
+    image: my-project:latest
+    # Povolení GPU (vyžaduje Docker Compose v2.3+)
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    # Sdílení sítě pro MLflow
+    network_mode: "host"
+    # Sdílená paměť (nutné pro PyTorch dataloaders)
+    shm_size: '8gb'
+    # Načtení secretů
+    env_file:
+      - .env
+    # Mapování disků (ZFS -> Container)
+    volumes:
+      - /srv/datasets/my_project:/app/data/full
+    environment:
+      - DATASET_DIR=/app/data/full
+    # Výchozí příkaz (lze přepsat)
+    command: python src/train.py
+
+  # Volitelné: Interaktivní režim pro debugování
+  jupyter:
+    build: 
+      context: .
+      dockerfile: Dockerfile # (nebo Dockerfile.interactive)
+    network_mode: "host"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+    volumes:
+      - /srv/datasets/my_project:/app/data/full
+      - ./notebooks:/app/notebooks # Sync notebooků zpět na disk
+    command: jupyter lab --ip=0.0.0.0 --port=8888 --allow-root --no-browser
