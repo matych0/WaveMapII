@@ -1,0 +1,43 @@
+# config/data/transforms/min_max_norm.yaml
+
+train:
+  _target_: torchvision.transforms.Compose
+  transforms:
+    - _target_: src.transforms.transforms.RandomPolarity
+      probability: 0.5
+      shuffle: true
+      random_seed: ${seed}
+
+    - _target_: src.transforms.transforms.RandomAmplifier
+      probability: 0.2
+      limit: 0.2
+      shuffle: true
+      random_seed: ${seed}
+
+    - _target_: src.transforms.transforms.RandomTemporalScale
+      probability: 0.2
+      limit: 0.2
+      shuffle: true
+      random_seed: ${seed}
+
+    - _target_: src.transforms.transforms.RandomShift
+      probability: 0.5
+      shift_range: 0.3
+      shuffle: true
+      random_seed: ${seed}
+
+    - _target_: src.transforms.transforms.RandomGaussian
+      probability: 0.2
+      low_limit: 10
+      high_limit: 30
+      shuffle: true
+      random_seed: ${seed}
+
+    - _target_: src.transforms.transforms.BaseTransform
+      shuffle: true
+      random_seed: ${seed}
+
+    - _target_: src.transforms.transforms.Normalize
+
+val:
+  _target_: src.transforms.transforms.Normalize

@@ -1,0 +1,6 @@
+# config/training/label_transforms/no_transform.yaml
+
+# constant shift added to training labels (in days)
+shift: 0
+# std of Gaussian noise added to training labels (in days)
+noise: 0

@@ -1,0 +1,5 @@
+# config/training/loss/coxph.yaml
+
+_target_: "src.losses.loss.CoxCCLoss"
+shrink: ${training.hparams.cox_regularization}
+

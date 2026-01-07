@@ -1,0 +1,10 @@
+# config/training/hparams.yaml
+
+epochs: 264
+batch_size: 32
+n_controls: 4
+cox_regularization: 0.01
+dropout_prob: 0.5
+lr: 0.01
+weight_decay: 0.0001
+  

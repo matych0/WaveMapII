@@ -9,8 +9,8 @@ from torchsurv.metrics.cindex import ConcordanceIndex
 from torchvision import transforms
 from transformers import get_cosine_schedule_with_warmup
 
-from losses.loss import CoxCCLoss
-from model.cox_mil_resnet import CoxAttentionResnet
+from src.losses.loss import CoxCCLoss
+from src.model.cox_mil_resnet import CoxAttentionResnet
 from src.dataset.collate import collate_padding
 from src.dataset.dataset import EGMDataset
 from src.transforms.transforms import (BaseTransform, RandomAmplifier,

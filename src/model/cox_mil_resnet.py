@@ -3,9 +3,9 @@ from typing import Dict, Tuple
 import torch
 import torch.nn as nn
 
-from model.building_blocks import (AttentionPooling, AveragePoolingBlock,
+from src.model.building_blocks import (AttentionPooling, AveragePoolingBlock,
                                    MaxPoolingBlock)
-from model.pyramid_resnet import LocalActivationResNet
+from src.model.pyramid_resnet import LocalActivationResNet
 
 
 class CoxAttentionResnet(nn.Module):
@@ -95,7 +95,7 @@ class CoxMaxResnet(nn.Module):
         # Pass through MaxPooling layer
         risk = self.maxmil(x, mask)
 
-        return risk
+        return risk, None
     
     
 class CoxAvgResnet(nn.Module):
@@ -140,4 +140,4 @@ class CoxAvgResnet(nn.Module):
         # Pass through AveragePooling layer
         risk = self.avgmil(x, mask)
 
-        return risk
+        return risk, None

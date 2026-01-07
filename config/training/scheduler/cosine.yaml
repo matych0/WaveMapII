@@ -1,0 +1,4 @@
+# config/training/scheduler/cosine.yaml
+
+name: cosine
+warmup_fraction: 0.1

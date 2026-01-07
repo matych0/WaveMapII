@@ -9,8 +9,8 @@ from torchsurv.metrics.cindex import ConcordanceIndex
 from torchvision import transforms
 from transformers import get_cosine_schedule_with_warmup
 
-from losses.loss import CoxCCLoss
-from model.cox_mil_resnet import CoxAvgResnet
+from src.losses.loss import CoxCCLoss
+from src.model.cox_mil_resnet import CoxAvgResnet
 from src.dataset.collate import collate_padding
 from src.dataset.dataset import EGMDataset
 from src.transforms.transforms import (BaseTransform, RandomAmplifier,
@@ -21,12 +21,12 @@ from src.transforms.transforms import (BaseTransform, RandomAmplifier,
 #Set seed
 SEED = 3052001
 
-ANNOTATION_DIR = ""
-DATA_DIR = ""
+ANNOTATION_DIR = "/home/matych/lib/data/WaveMap/HDF/annotations.csv"
+DATA_DIR = "/home/matych/lib/data/WaveMap/HDF"
 
-SAVE_MODEL_PATH = ""
+SAVE_MODEL_PATH = "/home/matych/lib/data/WaveMap/models"
 STUDY_NAME = "avg_pooling"
-TB_LOG_DIR = ""
+TB_LOG_DIR = "/home/matych/lib/data/WaveMap/logs"
 
 #hyperparameters
 KERNEL_SIZE = (1, 5)
@@ -41,7 +41,7 @@ NORMALIZATION = "BatchN2D"
 FILTER_UTILIZED = True
 SEGMENT_MS = 100
 OVERSAMPLING_FACTOR = None
-CHUNK_SIZE = 8
+CHUNK_SIZE = 4
 FOLDS = 3
 
 # Optimized hyperparameters
@@ -49,9 +49,9 @@ DROPOUT = 0.5
 COX_REGULARIZATION = 0.01
 LEARNING_RATE = 0.01
 WEIGHT_DECAY = 0.0001
-BATCH_SIZE = 32
-NUM_EPOCHS = 264
-N_CONTROLS = 4
+BATCH_SIZE = 4
+NUM_EPOCHS = 4
+N_CONTROLS = 1
 
 
 def sample_cases_controls(risks, events, durations, n_controls):

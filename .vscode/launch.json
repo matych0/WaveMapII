@@ -6,11 +6,16 @@
     "configurations": [
 
         {
-            "name": "Python: Run Module",
+            "name": "Debug training",
             "type": "debugpy",
             "request": "launch",
-            "module": "src.dataset.dataset",
-            "console": "integratedTerminal"
-          }
+            "module": "src.train",
+            "args": [
+                "training.hparams.batch_size=8",
+                "training.hparams.epochs=20"
+            ],
+            "justMyCode": false
+        }
+
     ]
 }

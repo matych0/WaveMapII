@@ -1,0 +1,18 @@
+# config/config.yaml
+
+defaults:
+  - _self_
+  - model: max_pooling
+  - data/paths: paths
+  - data/dataset: dataset
+  - data/transforms: transforms
+  - training/hparams: hparams
+  - training/loss: coxph
+  - training/optimizer: adamw
+  - training/scheduler: cosine
+  - training/label_transforms: no_transform
+
+study_name: "WMP2"
+experiment_name: "ab_testing"
+seed: 3052001
+folds: 3

@@ -1,0 +1,13 @@
+# config/data/transforms/no_augmentations.yaml
+
+train:
+  _target_: torchvision.transforms.Compose
+  transforms:
+    - _target_: src.transforms.transforms.TanhNormalize
+      factor: 5
+
+val:
+  _target_: torchvision.transforms.Compose
+  transforms:
+    - _target_: src.transforms.transforms.TanhNormalize
+      factor: 5

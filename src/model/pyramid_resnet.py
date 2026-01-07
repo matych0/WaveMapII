@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from model import building_blocks as bb
+from src.model import building_blocks as bb
 
 
 class LocalActivationResNet(nn.Module):

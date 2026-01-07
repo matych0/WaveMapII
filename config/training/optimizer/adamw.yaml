@@ -1,0 +1,5 @@
+# config/training/optimizer/adamw.yaml
+
+_target_: torch.optim.AdamW
+lr: ${training.hparams.lr}
+weight_decay: ${training.hparams.weight_decay}

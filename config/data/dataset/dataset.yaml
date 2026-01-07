@@ -1,0 +1,10 @@
+# config/data/dataset.yaml
+
+dataset:
+  class_name: "src.dataset.dataset.EGMDataset"
+  collate_fn: "src.dataset.collate.collate_padding"
+
+startswith: "LA_WMP2"
+segment_ms: 100
+filter_utilized: True
+readjustonce: True
