@@ -1,0 +1,3 @@
+# !!! DO NOT USE THIS FILE FOR INSTALLATION !!!
+# This file exists only for dependency scanning tools.
+# Use: mamba env create -f environment.yml

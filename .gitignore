@@ -1,0 +1,61 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environments
+.env
+.env.local
+.envrc
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Output folders
+mlruns/       # Local MLflow runs (if not pointing to server)
+outputs/      # Hydra default output folder
+multirun/     # Hydra sweeper output folder
+
+# Data Management
+data/* # Ignore everything in data...
+!data/samples/ # ...EXCEPT the samples folder (for MWE)
+!data/samples/*
+
+# Models
+models/
+*.pth
+*.h5
+*.csv
+
+# IDEs
+.vscode/
+.idea/
