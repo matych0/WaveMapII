@@ -220,15 +220,13 @@ def train_one_fold(cfg, fold):
         history["train_cindex"].append(train_cidx)
         history["val_cindex"].append(val_cidx)
 
-    # Save model
-    save_path = os.path.join(cfg.data.paths.save_model_dir, f"{cfg.study_name}_{cfg.experiment_name}_{cfg.model.name}_fold_{fold}.pth")
-    torch.save(model.state_dict(), save_path)
-
     return {
         "history": history,
         "final_val_cindex": val_cidx,
-        "model_path": save_path,
+        "model": model,   # <-- return full model object
+        "fold": fold,
     }
+
 
 
 # -------------------------------------------------------------

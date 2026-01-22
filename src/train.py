@@ -1,19 +1,25 @@
 # src/train.py
-
+from dotenv import load_dotenv
+import os
 import hydra
 from omegaconf import DictConfig
 import mlflow
+import mlflow.pytorch
+
 
 from .engine import run_training
 from .utils.seed import set_seed
 
+load_dotenv()
 
 @hydra.main(config_path="../config", config_name="config", version_base="1.3")
 def main(cfg: DictConfig):
 
     #set_seed(cfg.seed)
+    
+    tracking_uri = os.getenv("MLFLOW_TRACKING_URI")
+    mlflow.set_tracking_uri(tracking_uri)
 
-    mlflow.set_tracking_uri(f"sqlite:///{cfg.data.paths.logs_dir}/{cfg.study_name}.db")
     mlflow.set_experiment(f"{cfg.study_name}_{cfg.experiment_name}")
     print("MLflow tracking URI:", mlflow.get_tracking_uri())
 
@@ -37,7 +43,12 @@ def main(cfg: DictConfig):
                 print(f"Run ID: {child_run.info.run_id}")
                 mlflow.set_tag("fold", i + 1)
 
-                #mlflow.log_artifact(fold["model_path"]) Artifacts
+                """ mlflow.pytorch.log_model(
+                    pytorch_model=fold["model"],
+                    artifact_path="model",
+                    registered_model_name=f"{cfg.model.name}"  # optional but recommended
+                ) """
+
                 for j in range(cfg.training.hparams.epochs):
                     mlflow.log_metric(f"train_loss", fold["history"]["train_loss"][j], step=j)
                     mlflow.log_metric(f"val_loss", fold["history"]["val_loss"][j], step=j)

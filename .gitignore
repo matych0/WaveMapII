@@ -46,6 +46,7 @@ MANIFEST
 mlruns/
 outputs/
 multirun/
+*.db
 
 # Data Management
 data/* 
