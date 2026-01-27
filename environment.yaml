@@ -4,10 +4,9 @@
 # PyTorch: 2.9.x (Latest Stable, Oct 2025)
 # CUDA: 12.6 (via pytorch-cuda)
 # ------------------------------------------------------------------
-name: ml-base-py312
+name: ml-local-py312
 
 channels:
-  # Priority: pytorch, then nvidia, then conda-forge
   - pytorch
   - nvidia
   - conda-forge
@@ -16,41 +15,51 @@ dependencies:
   - python=3.12.*
   - pip
 
-  # ----- PyTorch Stack -----
-  - pytorch=2.9.*
-  - torchvision=0.24.*
-  - torchaudio=2.9.*
-  - pytorch-cuda=12.1
-
-
-  # ----- ML/Data science Stack -----
-  - numpy=1.26.*
+  # ----- ML / Data Science -----
+  - numpy=2.2.*
   - pandas=2.2.*
-  - scikit-learn=1.5.*
-  - scipy=1.14.*
-  - matplotlib
-  - seaborn
-  - psycopg2  # PSQL adapter
-  - sqlalchemy
-  - transformers
+  - scikit-learn=1.6.*
+  - scipy=1.15.*
+  - matplotlib=3.10.*
+  - seaborn=0.13.*
+  - psycopg2
+  - sqlalchemy=2.0.*
+
+  # ----- Optimization -----
+  - optuna=4.6.*
 
   # ----- Data formats -----
-  - h5py
+  - h5py=3.12.*
   - pyaml
 
-  # ----- MLOps -----
-  - mlflow
-  - hydra-core
-  # - datasets
-  # - accelerate
+  # ----- NLP / Models -----
+  - transformers
 
-  # ----- Other -----
-  - tqdm
+  # ----- MLOps -----
+  - mlflow=3.4.*
+  - hydra-core=1.3.*
+
+  # ----- Utilities -----
+  - tqdm=4.67.*
   - python-dotenv
 
   # ----- PIP-only packages -----
   - pip:
-    - wandb
-    - hydra-optuna-sweeper
-    - torchsurv
-    - torchtuples
+      # Tracking
+      - wandb==0.19.*
+
+      # Optuna + Hydra
+      - hydra-optuna-sweeper
+
+      # Survival analysis
+      - torchsurv
+      - torchtuples
+
+      # Ray stack
+      - ray[tune]==2.53.*
+
+      # PyTorch (CUDA 12.6)
+      - --extra-index-url https://download.pytorch.org/whl/cu126
+      - torch==2.9.*
+      - torchvision==0.24.*
+      - torchaudio==2.9.*

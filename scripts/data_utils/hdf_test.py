@@ -304,15 +304,15 @@ def compute_mean_std_from_hdf(base_dir: str, max_files: int = 20, segment_ms: in
 
 if __name__ == "__main__":
     # Example usage
-    base_directory = "/media/guest/DataStorage/WaveMap/HDF5"  # Replace with your directory path
-    output_directory = "/media/guest/DataStorage/WaveMap/WaveMapEnsiteAnnotations/hdf_dataset_overview_overall.csv"
+    base_directory = "/home/matych/lib/data/WaveMap/HDF"  # Replace with your directory path
+    #output_directory = "/media/guest/DataStorage/WaveMap/WaveMapEnsiteAnnotations/hdf_dataset_overview_overall.csv"
     
     df = scan_hdf_directories(base_directory)
     print(df.head())
 
     #plot_instances_histogram(df, bins=20)
-    all_traces = compute_mean_std_from_hdf(base_directory, max_files=250, segment_ms=100)
-    plot_histogram(all_traces, bins=100)
+    #all_traces = compute_mean_std_from_hdf(base_directory, max_files=250, segment_ms=100)
+    #plot_histogram(all_traces, bins=100)
 
     #compute_mean_std_from_hdf(base_directory, max_files=250, segment_ms=100)
     #plot_histogram(df, bins=25)
