@@ -11,6 +11,7 @@ class LocalActivationResNet(nn.Module):
 
     def __init__(
             self,
+            dim: int,
             in_features: int,
             kernel_size: int,
             blocks: Union[Tuple, List],
@@ -20,7 +21,6 @@ class LocalActivationResNet(nn.Module):
             normalization: str,
             downsampling_factor: int,
             preactivation: bool,
-            trace_stages: bool,
             **kwargs,
     ) -> None:
 
@@ -28,12 +28,12 @@ class LocalActivationResNet(nn.Module):
         self._name = kwargs.pop('name', 'defMdl')
         self._version = kwargs.pop('version', '0.0.1')
 
-        self.trace_stages = trace_stages
 
         # input gate
         stem_in_planes, stem_out_planes = in_features, features[0]
 
         self.stem = bb.Basic1dStem(
+            dim=dim,
             in_channels=stem_in_planes,
             out_channels=stem_out_planes,
             kernel_size=stem_kernel_size,
@@ -42,6 +42,7 @@ class LocalActivationResNet(nn.Module):
         )
         
         self.downsample = bb.MaxAntialiasDownsampling(
+            dim=dim,
             in_channels=stem_out_planes,
             out_channels=stem_out_planes,
             stride=downsampling_factor,
@@ -50,16 +51,15 @@ class LocalActivationResNet(nn.Module):
 
         # encoder
         self.backbone = bb.ResNet(
+            dim=dim,
             kernel_size=kernel_size,
             blocks=blocks,
             features=features,
             stem_kernel_size=stem_kernel_size,
             activation=activation,
             normalization=normalization,
-            preactivation=preactivation,
-            trace_stages=trace_stages,
+            preactivation=preactivation
         )
-
 
         # Custom layer weights init
         self.init_weights(orthogonal=False)
@@ -121,15 +121,15 @@ if __name__ == "__main__":
     
     resnet = LocalActivationResNet(
         in_features=1,
-        kernel_size=(1,5),
-        stem_kernel_size=(1,17),
+        dim=2,
+        kernel_size=5,
+        stem_kernel_size=17,
         blocks=[3,4,6,3],
         features=[16,32,64,128],
         activation="LReLU",
-        normalization="BatchN2D",
+        normalization="BatchN",
         downsampling_factor=2,
-        preactivation=False,
-        trace_stages=True
+        preactivation=False
     )
     
     x = resnet(x)

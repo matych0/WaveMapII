@@ -5,6 +5,19 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
+class ConvOps:
+    def __init__(self, dim: int):
+        assert dim in (1, 2)
+        self.dim = dim
+
+        self.Conv = nn.Conv1d if dim == 1 else nn.Conv2d
+        self.BatchNorm = nn.BatchNorm1d if dim == 1 else nn.BatchNorm2d
+        self.MaxPool = nn.MaxPool1d if dim == 1 else nn.MaxPool2d
+        self.AvgPool = nn.AvgPool1d if dim == 1 else nn.AvgPool2d
+
+        self.conv_fn = F.conv1d if dim == 1 else F.conv2d
+
+
 def get_activation(activation: str):
     if not isinstance(activation, str):
         return None
@@ -16,38 +29,54 @@ def get_activation(activation: str):
     }[activation]
 
 
-def get_normalization(normalization: str, num_channels: int = 0, num_groups: int = 1):
-    if not isinstance(normalization, str):
+def get_normalization(normalization: str, dim: int, num_channels: int = 0, num_groups: int = 1):
+    if normalization is None:
         return None
 
-    choices = nn.ModuleDict({
-        'conv': nn.Conv2d(10, 10, 3),
-        'pool': nn.MaxPool2d(3)
-    })
+    if normalization == "BatchN":
+        return nn.BatchNorm1d(num_channels) if dim == 1 else nn.BatchNorm2d(num_channels)
 
-    return {
-        "BatchN": nn.BatchNorm1d(num_channels),
-        "BatchN2D": nn.BatchNorm2d(num_channels),
-        "GroupN": nn.GroupNorm(num_groups, num_channels),
-        "InstaN": nn.GroupNorm(num_channels, num_channels),
-        "LayerN": nn.GroupNorm(1, num_channels),
-    }[normalization]
+    if normalization == "GroupN":
+        return nn.GroupNorm(num_groups, num_channels)
+
+    if normalization == "InstaN":
+        return nn.GroupNorm(num_channels, num_channels)
+
+    if normalization == "LayerN":
+        return nn.GroupNorm(1, num_channels)
+
+    raise ValueError(f"Unknown normalization {normalization}")
+
+
+def temporal_stride(stride, dim):
+    return stride if dim == 1 else (1, stride)
+
+def temporal_kernel(k, dim):
+    return k if dim == 1 else (1, k)
+
+def temporal_padding(p, dim):
+    return p if dim == 1 else (0, p)
+
 
 #Needs modification
-class Conv1dWrapper(nn.Conv2d):
+class ConvNdWrapper(nn.Module): # Replace with 1d
     """ Conv1d wrapper
     """
 
     def __init__(
             self,
+            dim: int,
             in_channels: int,
             out_channels: int,
-            kernel_size: Tuple[int, ...],
+            kernel_size,
             dilation: int = 1,
             **kwargs,
     ):
-        """
-        """
+        
+        super().__init__()
+
+        self.ops = ConvOps(dim)
+
         normalization = kwargs.pop("normalization", None)
         activation = kwargs.pop("activation", None)
         preactivation = kwargs.pop("preactivation", False)
@@ -55,9 +84,19 @@ class Conv1dWrapper(nn.Conv2d):
         normalization_groups = kwargs.pop("normalization_groups", 1)
 
         if padding is None:
-            padding = tuple(kernel_dimension // 2 * dilation for kernel_dimension in kernel_size)
+            if isinstance(kernel_size, int):
+                padding = kernel_size // 2 * dilation
+            else:
+                padding = tuple(kernel_dimension // 2 * dilation for kernel_dimension in kernel_size)
 
-        super().__init__(in_channels, out_channels, kernel_size, padding=padding, dilation=dilation, **kwargs)
+        self.conv = self.ops.Conv(
+            in_channels,
+            out_channels,
+            kernel_size,
+            padding=padding,
+            dilation=dilation,
+            **kwargs,
+        )
 
         self.preactivation = preactivation
         self.activation = get_activation(activation)
@@ -67,12 +106,12 @@ class Conv1dWrapper(nn.Conv2d):
         else:
             norm_channels = out_channels
 
-        self.normalization = get_normalization(normalization, norm_channels, normalization_groups)
+        self.normalization = get_normalization(normalization, dim, norm_channels, normalization_groups)
 
     def forward(self, x):
 
         if not self.preactivation:
-            x = F.conv2d(x, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
+            x = self.conv(x)
 
         if self.normalization is not None:
             x = self.normalization(x)
@@ -81,7 +120,7 @@ class Conv1dWrapper(nn.Conv2d):
             x = self.activation(x)
 
         if self.preactivation:
-            x = F.conv2d(x, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
+            x = self.conv(x)
 
         return x
 
@@ -95,11 +134,7 @@ class ReshapeTensor(nn.Module):
         return x.view(self.shape)
 
 
-class MaxAntialiasDownsampling(nn.Sequential):
-    """ MaxBlur pooling inspired by "Making Convolutional Networks Shift-Invariant Again" at https://arxiv.org/pdf/1904.11486.
-
-    Box filter is used as weak anti-alias filter instead of Finite Impulse Response filters. 
-    """
+""" class MaxAntialiasDownsampling(nn.Sequential):
     def __init__(
         self, in_channels: int, out_channels: int, stride: int = 2,
         normalization: Optional[str] = None,
@@ -112,24 +147,65 @@ class MaxAntialiasDownsampling(nn.Sequential):
         nn.AvgPool2d(kernel_size=(1, kernel_size), stride=1, padding=(0, padding)),
         nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=(1, stride), bias=False),
         get_normalization(normalization,out_channels,1),
-        )
+        ) # Replace with 1d """
 
+
+class MaxAntialiasDownsampling(nn.Sequential):
+    """ MaxBlur pooling inspired by "Making Convolutional Networks Shift-Invariant Again" at https://arxiv.org/pdf/1904.11486.
+
+    Box filter is used as weak anti-alias filter instead of Finite Impulse Response filters. 
+    """
+
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        stride: int = 2,
+        normalization: Optional[str] = None,
+        dim: int = 1,
+    ):
+        ops = ConvOps(dim)
+
+        kernel_size = stride + 1
+        padding = kernel_size // 2
+
+        super().__init__(
+            ops.MaxPool(
+                kernel_size=temporal_kernel(kernel_size, dim),
+                stride=1,
+                padding=temporal_padding(padding, dim),
+            ),
+            ops.AvgPool(
+                kernel_size=temporal_kernel(kernel_size, dim),
+                stride=1,
+                padding=temporal_padding(padding, dim),
+            ),
+            ops.Conv(
+                in_channels,
+                out_channels,
+                kernel_size=1,
+                stride=temporal_stride(stride, dim),
+                bias=False,
+            ),
+            get_normalization(normalization, dim, out_channels),
+        )
 
 class Basic1dStem(nn.Module):
     """
     ResNet input gate.
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, normalization: str = 'BatchN2D', activation: str = 'LReLU'):
+    def __init__(self, dim, in_channels, out_channels, kernel_size, normalization: str = 'BatchN', activation: str = 'LReLU'):
         """
         """
         super().__init__()
 
-        self.conv = Conv1dWrapper(
-            in_channels,
-            out_channels,
-            kernel_size=kernel_size,
-            stride=(1,2),
+        self.conv = ConvNdWrapper(
+            dim=dim,
+            in_channels=in_channels,
+            out_channels=out_channels,
+            kernel_size=temporal_kernel(kernel_size, dim),
+            stride=temporal_stride(2, dim),
             bias=False,
             normalization=normalization,
             activation=activation,
@@ -158,17 +234,24 @@ class ResidualBlock1D(nn.Module):
 
     def __init__(
             self,
+            dim: int,
             in_planes: int,
             out_planes: int,
             kernel_size: int,
             **kwargs,
     ):
-        self.has_stride = True if kwargs.get('stride', (1,1))[1] > 1 else False
+        raw_stride = kwargs.get("stride", 1)
+
+        if dim == 1:
+            self.has_stride = raw_stride > 1
+        else:
+            self.has_stride = isinstance(raw_stride, tuple) and raw_stride[1] > 1
+
         super().__init__()
 
         self.in_planes = in_planes
         self.out_planes = out_planes
-        stride = kwargs.pop('stride', (1,1))
+        stride = kwargs.pop('stride', 1)
         activation = kwargs.pop('activation', None)
         normalization = kwargs.pop('normalization', None)
         preactivation = kwargs.pop('preactivation', None)
@@ -176,18 +259,20 @@ class ResidualBlock1D(nn.Module):
         planes = in_planes // self.expansion
 
         # residual block
-        self.bottleneck = Conv1dWrapper(
-                in_planes,
-                planes,
-                kernel_size=(1,1),
-                activation=activation,
-                normalization=normalization,
-                preactivation=preactivation,
-                bias=False,
-                **kwargs,
-            )
+        self.bottleneck = ConvNdWrapper(
+            dim,
+            in_planes,
+            planes,
+            kernel_size=temporal_kernel(1, dim),
+            activation=activation,
+            normalization=normalization,
+            preactivation=preactivation,
+            bias=False,
+            **kwargs,
+        )
 
-        self.receptive_block = Conv1dWrapper(
+        self.receptive_block = ConvNdWrapper(
+            dim,
             planes,
             planes,
             kernel_size,
@@ -200,10 +285,11 @@ class ResidualBlock1D(nn.Module):
 
         self.pool = nn.AvgPool2d(kernel_size=stride) if self.has_stride else nn.Identity()
 
-        self.expansion_block = Conv1dWrapper(
+        self.expansion_block = ConvNdWrapper(
+            dim,
             planes,
             out_planes,
-            kernel_size=(1,1),
+            kernel_size=temporal_kernel(1, dim),
             activation=activation,
             normalization=normalization,
             preactivation=preactivation,
@@ -216,16 +302,18 @@ class ResidualBlock1D(nn.Module):
             self.resample = nn.Sequential(
                 get_normalization(
                     normalization,
-                    in_planes,
+                    dim,
+                    in_planes
                 ),
 
                 nn.AvgPool2d(kernel_size=stride) if self.has_stride else nn.Identity(),
 
-                Conv1dWrapper(
+                ConvNdWrapper(
+                    dim,
                     in_planes,
                     out_planes,
-                    kernel_size=(1,1),
-                    stride=(1,1),
+                    kernel_size=1,
+                    stride=1,
                     bias=False,
                     activation=None,
                     normalization=None,
@@ -259,6 +347,7 @@ class ResidualStage1D(nn.Module):
 
     def __init__(
             self,
+            dim: int,
             in_planes: int,
             out_planes: int,
             kernel_size: int,
@@ -270,13 +359,14 @@ class ResidualStage1D(nn.Module):
         self.stage = nn.Sequential()
         for block_idx in range(layer_depth):
             if block_idx == 0:
-                stride = (1,2)
+                stride = temporal_stride(2, dim)
             else:
                 in_planes = out_planes
-                stride = (1,1)
+                stride = 1
 
             self.stage.append(
                 ResidualBlock1D(
+                    dim=dim,
                     in_planes=in_planes,
                     out_planes=out_planes,
                     kernel_size=kernel_size,
@@ -296,15 +386,14 @@ class ResNet(nn.Module):
     """
     def __init__(
         self,
-        kernel_size: Union[Tuple[int, ...], int] = (1,3),
+        dim: int,
+        kernel_size: int = 5,
         blocks: Union[Tuple, List] = [3, 6, 32, 6],
         features: Union[Tuple, List] = [16, 32, 64, 128],
         activation: str = 'LReLU',
-        normalization: str = 'BatchN2D',
+        normalization: str = 'BatchN',
         preactivation: bool = True,
-        trace_stages: bool = True,                        
         normalization_groups: int = 1,
-        kernel_dimension: int = 2,
         ** kwargs,
     ) -> None:
         """_summary_
@@ -318,21 +407,13 @@ class ResNet(nn.Module):
             activation (str, optional): _description_. Defaults to 'LReLU'.
             normalization (str, optional): _description_. Defaults to 'BatchN'.
             preactivation (bool, optional): _description_. Defaults to True.
-            trace_stages (bool, optional): _description_. Defaults to True.
             normalization_groups (list, optional): _description_. Defaults to None.
         """
 
         assert len(blocks) == len(features)
 
-        if kernel_dimension == 2:
-            residual_class = ResidualStage1D
-        elif kernel_dimension == 1:
-            raise NotImplementedError
-        else:
-            raise ValueError(f'Incorrect kernel size. Expected `int` or `tuple`. Got {type(kernel_size)}')
 
         super().__init__()        
-        self.trace_stages = trace_stages
         
         # create encoding layers
         self.backbone = nn.ModuleList()
@@ -344,10 +425,11 @@ class ResNet(nn.Module):
         ):
             # append layer to encoder
             self.backbone.append(
-                residual_class(
-                    in_planes,
-                    out_planes,
-                    kernel_size=kernel_size,
+                ResidualStage1D(
+                    dim=dim,
+                    in_planes=in_planes,
+                    out_planes=in_planes,
+                    kernel_size=temporal_kernel(kernel_size, dim),
                     layer_depth=layer_depth,
                     activation=activation,
                     normalization=normalization,
@@ -370,219 +452,6 @@ class ResNet(nn.Module):
         # ResNet backbone
         for stage in self.backbone:
             x = stage(x)
-
-        return x
-
-
-class PyramidFeatures(nn.Module):
-    """
-    A ResNet layer with N stacked blocks.
-    """
-
-    def __init__(
-            self,
-            features: Union[Tuple, List],
-            compression: int,
-            kernel_size: int,
-            activation: str = 'LReLU',
-            normalization: str = 'BatchN',
-            preactivation: bool = True,
-            **kwargs,
-    ):
-        """_summary_
-
-        Args:
-            features (Union[Tuple, List]): _description_
-            compression (int): _description_
-            activation (str, optional): _description_. Defaults to 'LReLU'.
-            normalization (str, optional): _description_. Defaults to 'BatchN'.
-            preactivation (bool, optional): _description_. Defaults to True.
-        """
-        super().__init__()
-
-        in_planes = features
-
-        # convolution heads with fixed kernels
-        self.compression_head = nn.ModuleList()
-        self.output_head = nn.ModuleList()
-        self.concat_head = nn.ModuleList()
-
-        # append in reversed order because tensors from each stage need to be processed backwards
-        for ip in reversed(in_planes):
-            # input 1x1 convolution
-            self.compression_head.append(
-                Conv1dWrapper(
-                    in_channels=ip,
-                    out_channels=compression,
-                    kernel_size=1,
-                    stride=1,
-                    bias=False,
-                    activation=activation,
-                    normalization=normalization,
-                    preactivation=preactivation,
-                )
-            )
-
-            self.output_head.append(
-                ResidualBlock1D(
-                    in_planes=compression,
-                    out_planes=compression,
-                    kernel_size=kernel_size,
-                    stride=1,
-                    activation=activation,
-                    normalization=normalization,
-                    preactivation=preactivation,
-                    **kwargs
-                )
-            )
-
-    def forward(self, x):
-        assert len(x) == len(self.compression_head)
-
-        x.reverse()
-
-        # get sizes for upsampling
-        w = [i.shape[-1] for i in x]
-
-        trace = []
-        for idx, (t, compression_conv, out_conv) in enumerate(zip(
-                x,
-                self.compression_head,
-                self.output_head,
-        )):
-
-            # input convolution
-            t = compression_conv(t)
-
-            if idx != 0:
-                t = t + yt
-
-            if idx < len(x) - 1:
-                yt = F.interpolate(t, w[idx + 1], mode='linear')
-
-            # output convolution
-            t = out_conv(t)
-
-        return trace, t
-
-
-class DilatedReceptiveLayer(nn.Module):
-    """
-    """
-    expansion = 4
-
-    def __init__(
-            self,
-            in_channels: int,
-            dilations: Union[Tuple, List],
-            kernel_size: int,                        
-            activation: str = 'LReLU',
-            normalization: str = 'BatchN',
-            preactivation: bool = True,                        
-            **kwargs,
-    ):
-        """_summary_
-
-        Args:
-            in_channels (int): _description_
-            dilations (Union[Tuple, List]): _description_
-            kernel_size (int): _description_
-            activation (str, optional): _description_. Defaults to 'LReLU'.
-            normalization (str, optional): _description_. Defaults to 'BatchN'.
-            preactivation (bool, optional): _description_. Defaults to True.
-        """
-        super().__init__()
-
-        compressed_channels = in_channels // self.expansion
-
-        # compression convolutions with constant kernel
-        self.compression_gate = Conv1dWrapper(
-            in_channels=in_channels,
-            out_channels=compressed_channels,
-            kernel_size=1,            
-            activation=activation,
-            normalization=normalization,
-            preactivation=preactivation,
-            bias=False,
-            )
-
-        # dilated convolutions for increased receptive field
-        self.dilated_gates = nn.ModuleList()
-        for d in dilations:            
-            self.dilated_gates.append(
-                Conv1dWrapper(
-                    in_channels=compressed_channels,
-                    out_channels=compressed_channels,
-                    kernel_size=kernel_size,                    
-                    dilation=d,
-                    activation=activation,
-                    normalization=normalization,
-                    preactivation=preactivation,
-                    bias=False,
-                )
-            )        
-        
-        # output convolutions with constant kernel
-        out_channels = len(dilations) * compressed_channels
-
-        self.output_gate = Conv1dWrapper(
-            in_channels=out_channels,
-            out_channels=in_channels,
-            kernel_size=1,
-            activation=activation,
-            normalization=normalization,
-            preactivation=preactivation,
-            )
-
-    def forward(self, x):        
-        x = self.compression_gate(x)
-
-        trace = []
-        for conv in self.dilated_gates:
-            trace.append(conv(x))
-
-        # Concat output
-        y = torch.cat(trace, dim=1)        
-
-        # Output gate
-        y = self.output_gate(y)
-
-        return y
-
-
-class ClassificationLayer(nn.Module):
-    def __init__(
-        self,
-        in_channels,
-        out_channels,
-    ):
-        """_summary_
-
-        Args:
-            in_channels (_type_): _description_
-            out_channels (_type_): _description_
-        """
-        super().__init__()
-        
-        self.pooling = nn.Sequential(            
-            nn.AdaptiveAvgPool1d(1)
-        )
-
-        self.linear_layer = nn.Sequential(
-            nn.Linear(in_channels, 64, bias=True),            
-            nn.Dropout(0.15),
-            nn.Linear(64, out_channels, bias=False),
-        )
-
-    def forward(self, x, mask: torch.Tensor = None):
-
-        if mask is not None:
-            x = x * mask
-
-        # forward net
-        x = self.pooling(x)
-        x = torch.flatten(x, 1)
-        x = self.linear_layer(x)
 
         return x
     
