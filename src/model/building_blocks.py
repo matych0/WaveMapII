@@ -258,6 +258,8 @@ class ResidualBlock1D(nn.Module):
 
         planes = in_planes // self.expansion
 
+        avg_pool = nn.AvgPool1d if dim == 1 else nn.AvgPool2d
+
         # residual block
         self.bottleneck = ConvNdWrapper(
             dim,
@@ -283,7 +285,7 @@ class ResidualBlock1D(nn.Module):
             **kwargs,
         )
 
-        self.pool = nn.AvgPool2d(kernel_size=stride) if self.has_stride else nn.Identity()
+        self.pool = avg_pool(kernel_size=stride) if self.has_stride else nn.Identity()
 
         self.expansion_block = ConvNdWrapper(
             dim,
@@ -299,6 +301,7 @@ class ResidualBlock1D(nn.Module):
 
         # filters for reshaping identity data
         if self.has_stride or self.in_planes != self.out_planes:
+
             self.resample = nn.Sequential(
                 get_normalization(
                     normalization,
@@ -306,7 +309,7 @@ class ResidualBlock1D(nn.Module):
                     in_planes
                 ),
 
-                nn.AvgPool2d(kernel_size=stride) if self.has_stride else nn.Identity(),
+                avg_pool(kernel_size=stride) if self.has_stride else nn.Identity(),
 
                 ConvNdWrapper(
                     dim,
@@ -428,7 +431,7 @@ class ResNet(nn.Module):
                 ResidualStage1D(
                     dim=dim,
                     in_planes=in_planes,
-                    out_planes=in_planes,
+                    out_planes=out_planes,
                     kernel_size=temporal_kernel(kernel_size, dim),
                     layer_depth=layer_depth,
                     activation=activation,

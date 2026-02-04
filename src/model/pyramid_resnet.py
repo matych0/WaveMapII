@@ -112,20 +112,21 @@ class LocalActivationResNet(nn.Module):
         x = self.backbone(x)
         
         # Global average pooling    
-        return torch.mean(x,dim=3,keepdim=False)
+        return torch.mean(x,dim=-1,keepdim=False)
         
     
 if __name__ == "__main__":
     
-    x = torch.rand([10,1,400,203]) # [batch, channels, instances, samples]
-    
+    #x = torch.rand([32, 1, 5000, 203]) # [batch, channels, instances, samples]
+    x = torch.rand([6600, 24, 203]) # [N * B, CH, S]
+
     resnet = LocalActivationResNet(
-        in_features=1,
-        dim=2,
+        in_features=24,
+        dim=1,
         kernel_size=5,
         stem_kernel_size=17,
         blocks=[3,4,6,3],
-        features=[16,32,64,128],
+        features=[24,32,64,128],
         activation="LReLU",
         normalization="BatchN",
         downsampling_factor=2,

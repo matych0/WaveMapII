@@ -141,3 +141,33 @@ class CoxAvgResnet(nn.Module):
         risk = self.avgmil(x, mask)
 
         return risk, None
+    
+
+if __name__ == "__main__":
+    x = torch.rand([2500, 24, 203])  # [batch, channels, instances, samples]
+
+    resnet_params = {
+        "in_features": 24,
+        "dim": 1,
+        "kernel_size": 5,
+        "stem_kernel_size": 17,
+        "blocks": [3, 4, 6, 3],
+        "features": [24, 32, 64, 128],
+        "activation": "LReLU",
+        "normalization": "BatchN",
+        "downsampling_factor": 2,
+        "preactivation": False
+    }
+
+    amil_params = {
+        "input_size": 128,
+        "hidden_size": 128,
+        "attention_hidden_size": 64,
+        "output_size": 1,
+        "dropout": False,
+    }
+
+    model = CoxAttentionResnet(resnet_params, amil_params)
+    risk, attention_weights = model(x, None)
+    print("CoxAttentionResnet output________")
+    print(risk.shape)

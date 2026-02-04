@@ -76,6 +76,8 @@ def segment_signals(signals, indices, segment_ms, fs):
             segment = np.pad(segment, (0, segment_samples - len(segment)), mode='constant')
 
         segments[i] = segment
+    
+    lats = np.array(lats)
 
     return segments
 
@@ -130,6 +132,19 @@ def collect_filepaths_and_maps_inference(data, data_dir, startswith, readjustonc
         all_peak_to_peak.append(peak_to_peak)
 
     return filepaths, maps, all_trace_indices, all_peak_to_peak
+
+
+def pad_channels(patch, target_ch=24):
+    ch, s = patch.shape
+    pad_ch = target_ch - ch
+    if pad_ch < 0:
+        raise ValueError("CH exceeds target number of channels")
+    return np.pad(
+        patch,
+        pad_width=((0, pad_ch), (0, 0)),
+        mode="constant",
+        constant_values=0
+    )
 
 
 class HDFDataset(Dataset):
@@ -476,8 +491,137 @@ class EGMDataset(Dataset):
         event = torch.tensor(event, dtype=torch.bool)
         
         return traces, duration, event
+    
 
+class EGMPatchDataset(Dataset):
+    """ Multiple-control training and validation dataset with patching."""
+    def __init__(
+            self,
+            annotations_file: os.PathLike,
+            data_dir: os.PathLike,
+			startswith: str = "",  
+            training: bool = True,
+            fold: int = 0,
+            readjustonce: bool = True,  
+            oversampling_factor: int = None,
+            controls_time_gaussian_std: int = 0, 
+            num_traces: int = None,
+            segment_ms: int = None,
+            filter_utilized: bool = False, 
+            transform = None,  
+            random_seed: int = 3052001,   
+            ):
+        
 
+        self.transform = transform
+        self.readjustonce = readjustonce
+        self.num_traces = num_traces
+        self.segment_ms = segment_ms
+        self.filter_utilized = filter_utilized  
+        
+        # set the random seed for reproducibility
+        self.np_rng = np.random.default_rng(random_seed)
+
+        # read the annotations file
+        self.annotations = pd.read_csv(annotations_file)
+        # get training/validation studies only
+        if training == True:
+            self.annotations = self.annotations[self.annotations["fold"] != fold]
+        else:
+            self.annotations = self.annotations[self.annotations["fold"] == fold]
+    
+        # Recurrence cases oversampling 
+        if oversampling_factor:
+            self.reccurence = self.annotations[self.annotations['reccurence'] == 1]
+            self.oversampled = pd.concat([self.reccurence] * (oversampling_factor - 1), ignore_index=True)
+            self.annotations = pd.concat([self.annotations, self.oversampled], ignore_index=True)
+        self.annotations.reset_index(drop=True, inplace=True)
+        
+        if controls_time_gaussian_std > 0:
+            controls_mask = self.annotations['reccurence'] == 0
+            noise = self.np_rng.normal(loc=0, scale=controls_time_gaussian_std, size=controls_mask.sum())
+            noise = np.round(noise).astype(int)
+            self.annotations.loc[controls_mask, 'days_to_event'] += noise
+
+        # read the HDF files or collect filepaths
+        self.maps = collect_filepaths_and_maps(self.annotations, data_dir, startswith, readjustonce, segment_ms, filter_utilized)
+                    
+
+    def __len__(self):
+        return len(self.annotations)
+
+    def __getitem__(self, idx):
+
+        duration = self.annotations.at[idx, 'days_to_event']
+        event = self.annotations.at[idx, 'reccurence']
+
+        if self.readjustonce:
+            traces = self.maps[idx]
+
+        else:
+            traces, fs, metadata = read_hdf(self.maps[idx], return_fs=True, metadata_keys=["rov LAT", "end time", "utilized", "pt number"])
+            utilized, t_amp, t_last, pt_number = metadata["utilized"], metadata["rov LAT"], metadata["end time"], metadata["pt number"]
+
+            if self.filter_utilized:
+                traces = traces[utilized, :]
+                t_amp = t_amp[utilized]
+                t_last = t_last[utilized]
+                pt_number = pt_number[utilized]
+            
+            patches = list()
+
+            for pt in np.unique(pt_number):
+                pt_mask = pt_number == pt
+                patch = traces[pt_mask, :]
+                t_amp_pt = t_amp[pt_mask]
+                t_last_pt = t_last[pt_mask]
+                indices = compute_LAT_indices(t_amp_pt, t_last_pt, fs, patch.shape[1])
+                avg_index = np.mean(indices).astype(int)
+                #re-center indices around the average LAT index
+                indices.fill(avg_index)
+                patch = segment_signals(patch, indices, self.segment_ms, fs)
+                patch = pad_channels(patch, target_ch=24)
+
+                patches.append(patch)
+
+            patches = torch.from_numpy(np.stack(patches, axis=0))
+
+        
+        """ if self.num_traces:
+            self.np_rng.shuffle(traces)
+            traces = traces[:self.num_traces]
+
+        if self.transform:
+            traces = self.transform(traces) """
+
+        traces = torch.from_numpy(traces)
+        duration = torch.tensor(duration, dtype=torch.float32)
+        event = torch.tensor(event, dtype=torch.bool)
+        
+        return patches, duration, event
+    
+
+if __name__ == "__main__":
+    annotations_file = "/home/matych/lib/data/WaveMap/HDF/annotations.csv"
+    data_dir = "/home/matych/lib/data/WaveMap/HDF/"
+    
+    dataset = EGMPatchDataset(
+        annotations_file=annotations_file,
+        data_dir=data_dir,
+        training=True,
+        fold=0,
+        readjustonce=False,
+        controls_time_gaussian_std=5,
+        segment_ms=100,
+        filter_utilized=False,
+        transform=None,
+        random_seed=3052001,
+    )
+    
+    print(f"Dataset size: {len(dataset)}")
+    traces, duration, event = dataset[2]
+    print(f"Traces shape: {traces.shape}, Duration: {duration}, Event: {event}")
+    
 
 
     
