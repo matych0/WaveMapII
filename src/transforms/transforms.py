@@ -15,6 +15,179 @@ class BaseTransform:
 
     def transform(self, x, **kwargs):
         return x
+    
+
+# -------------------- Class for patch processing --------------------
+# ------------------------------------------------------------------------
+
+class ShufflePatch:
+    def __init__(self, random_seed=None):
+        self.rng = np.random.default_rng(random_seed)
+
+    def __call__(self, x):
+        B, P = x.shape[:2]
+        perms = np.argsort(self.rng.random((B, P)), axis=1)
+        perms = perms.reshape(B, P, *([1] * (x.ndim - 2)))
+        return np.take_along_axis(x, perms, axis=1)
+
+    
+class ZScorePerSignal:
+    """
+    Z-score normalization applied independently to every signal
+    along the last dimension.
+
+    Works with arrays shaped (..., signal_length)
+    Example: (200, 24, 203)
+    """
+
+    def __init__(self, eps=1e-8):
+        self.eps = eps
+
+    def __call__(self, x):
+        mean = x.mean(axis=-1, keepdims=True)
+        std = x.std(axis=-1, keepdims=True)
+        return (x - mean) / (std + self.eps)
+    
+
+class RandomSignalZeroing:
+    def __init__(self, max_prob=0.2, random_seed=None):
+        self.max_prob = max_prob
+        self.rng = np.random.default_rng(random_seed)
+
+    def __call__(self, x: np.ndarray) -> np.ndarray:
+        if x.ndim != 3:
+            raise ValueError("Input must have shape (patches, channels, length)")
+
+        P, C, L = x.shape
+        total_signals = P * C
+
+        # draw probability
+        p = self.rng.uniform(0.0, self.max_prob)
+
+        # number of signals to zero
+        n_zero = int(round(p * total_signals))
+        if n_zero == 0:
+            return x
+
+        # choose random signal indices
+        flat_indices = self.rng.choice(total_signals, size=n_zero, replace=False)
+
+        # convert flat -> (patch, channel)
+        patch_idx = flat_indices // C
+        channel_idx = flat_indices % C
+
+        # zero entire signals
+        x[patch_idx, channel_idx, :] = 0.0
+
+        return x
+
+
+class RandomSignalFlipping:
+    def __init__(self, max_prob=0.2, random_seed=None):
+        self.max_prob = max_prob
+        self.rng = np.random.default_rng(random_seed)
+
+    def __call__(self, x: np.ndarray) -> np.ndarray:
+
+        if x.ndim != 3:
+            raise ValueError("Input must have shape (patches, channels, length)")
+
+        P, C, L = x.shape
+        total_signals = P * C
+
+        # draw probability
+        p = self.rng.uniform(0.0, self.max_prob)
+
+        # number of signals to zero
+        n_zero = int(round(p * total_signals))
+        if n_zero == 0:
+            return x
+
+        # choose random signal indices
+        flat_indices = self.rng.choice(total_signals, size=n_zero, replace=False)
+
+        # convert flat -> (patch, channel)
+        patch_idx = flat_indices // C
+        channel_idx = flat_indices % C
+
+        # flip polarity of entire signals
+        x[patch_idx, channel_idx, :] *= -1.0
+
+        return x
+    
+
+class RandomPatchFlipping:
+    def __init__(
+        self, 
+        max_prob=0.2, 
+        random_seed=None
+    ):
+        
+        self.max_prob = max_prob
+        self.rng = np.random.default_rng(random_seed)
+
+    def __call__(self, x: np.ndarray) -> np.ndarray:
+        if x.ndim != 3:
+            raise ValueError("Input must have shape (P, C, L)")
+
+        P, C, L = x.shape
+
+        # draw probability of patch selection
+        p = self.rng.uniform(0.0, self.max_prob)
+        n_flip = int(round(p * P))
+
+        if n_flip == 0:
+            return x
+
+        # select patches
+        patch_indices = self.rng.choice(P, size=n_flip, replace=False)
+
+        # flip polarity of selected patches
+        x[patch_indices] *= -1.0
+
+        return x
+    
+
+class RandomPatchTimeShift:
+    def __init__(
+        self,
+        max_prob=0.2,
+        max_shift_frac=0.1,
+        random_seed=None,
+    ):
+        self.max_prob = max_prob
+        self.max_shift_frac = max_shift_frac
+        self.rng = np.random.default_rng(random_seed)
+
+    def __call__(self, x: np.ndarray) -> np.ndarray:
+        if x.ndim != 3:
+            raise ValueError("Input must have shape (P, C, L)")
+
+        P, C, L = x.shape
+
+        # draw probability of patch selection
+        p = self.rng.uniform(0.0, self.max_prob)
+        n_shift = int(round(p * P))
+
+        if n_shift == 0:
+            return x
+
+        # select patches
+        patch_indices = self.rng.choice(P, size=n_shift, replace=False)
+
+
+        max_shift = int(round(self.max_shift_frac * L))
+        if max_shift == 0:
+            return x
+
+        for pidx in patch_indices:
+            shift = self.rng.integers(-max_shift, max_shift + 1)
+            if shift == 0:
+                continue
+
+            x[pidx] = np.roll(x[pidx], shift, axis=-1)
+
+        return x
 
 
 # -------------------- Classes for data normalization --------------------

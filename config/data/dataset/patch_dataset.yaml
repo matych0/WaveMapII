@@ -1,0 +1,13 @@
+# config/data/dataset/patch_dataset.yaml
+
+dataset:
+  class_name: "src.dataset.dataset.EGMPatchDataset"
+  collate_fn: "src.dataset.collate.collate_patches"
+
+startswith: "LA_WMP2"
+segment_ms: 100
+filter_utilized: False
+num_traces: null
+readjustonce: True
+filter_center: null
+shuffle_annotations: False

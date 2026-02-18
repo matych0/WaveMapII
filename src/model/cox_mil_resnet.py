@@ -30,7 +30,7 @@ class CoxAttentionResnet(nn.Module):
         # Initialize the AMIL layer
         self.amil: nn.Module = AttentionPooling(**amil_params)
 
-    def forward(self, x: torch.Tensor, mask: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, x: torch.Tensor, mask: torch.Tensor, batch_size=None) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Forward pass of the CoxAttentionResnet.
 
@@ -44,8 +44,13 @@ class CoxAttentionResnet(nn.Module):
         # Pass input through ResNet
         x = self.resnet(x)
 
-        # Transpose dimensions for compatibility
-        x = x.transpose(-2, -1)
+        if x.ndim == 2 and batch_size is not None:
+            n_patches = x.size(0) // batch_size
+            x = x.view(batch_size, n_patches, x.size(-1))
+
+        else:
+            # Transpose dimensions for compatibility
+            x = x.transpose(-2, -1)
 
         # Pass through AMIL
         risk, attention_weights = self.amil(x, mask)

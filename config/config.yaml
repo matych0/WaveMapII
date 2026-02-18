@@ -2,17 +2,18 @@
 
 defaults:
   - _self_
-  - model: atn_pooling
+  - model: atn_pooling_1d
   - data/paths: paths
-  - data/dataset: dataset
-  - data/transforms: transforms
+  - data/dataset: patch_dataset
+  - data/transforms: patch_shuffle
   - training/hparams: hparams
   - training/loss: coxph
   - training/optimizer: adamw
   - training/scheduler: cosine
-  - training/label_transforms: no_transform
+  - training/label_transforms: label_noise
 
 study_name: "WMP2"
-experiment_name: "ab_testing"
-seed: 3052001
+experiment_name: "architecture_tuning"
+run_name: "small_arch_full_dataset_augmentations"
+seed: 220920
 folds: 3

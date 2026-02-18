@@ -17,13 +17,14 @@ def main(cfg: DictConfig):
 
     #set_seed(cfg.seed)
     
-    tracking_uri = os.getenv("MLFLOW_TRACKING_URI")
-    mlflow.set_tracking_uri(tracking_uri)
+    #tracking_uri = os.getenv("MLFLOW_TRACKING_URI")
+    #mlflow.set_tracking_uri(tracking_uri)
+    mlflow.set_tracking_uri("file:./mlruns")
 
     mlflow.set_experiment(f"{cfg.study_name}_{cfg.experiment_name}")
     print("MLflow tracking URI:", mlflow.get_tracking_uri())
 
-    with mlflow.start_run(run_name=f"{cfg.model.name}") as parent_run:
+    with mlflow.start_run(run_name=f"{cfg.run_name}") as parent_run:
         print(f"Run ID: {parent_run.info.run_id}")
 
         mlflow.log_params({

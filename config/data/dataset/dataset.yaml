@@ -1,4 +1,4 @@
-# config/data/dataset.yaml
+# config/data/dataset/dataset.yaml
 
 dataset:
   class_name: "src.dataset.dataset.EGMDataset"
@@ -7,4 +7,6 @@ dataset:
 startswith: "LA_WMP2"
 segment_ms: 100
 filter_utilized: True
+num_traces: null
 readjustonce: True
+filter_center: null

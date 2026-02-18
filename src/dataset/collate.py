@@ -115,3 +115,38 @@ def collate_validation(batch: List[Tuple[torch.Tensor, torch.Tensor, torch.Tenso
 
     return durations, events, traces_padded_bags, traces_masks
 
+
+def collate_patches(batch: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """ Collates a batch of (traces, duration, event) tuples for processing by zero padding. """
+    B = len(batch)
+    CH = batch[0][0].shape[1]
+    L = batch[0][0].shape[2]
+
+    # number of patches per individual
+    P_list = [item[0].shape[0] for item in batch]
+    P_max = max(P_list)
+
+    # allocate tensors
+    traces_padded = torch.zeros(B, P_max, CH, L)
+    masks = torch.zeros(B, P_max, dtype=torch.bool)
+
+    durations = torch.zeros(B)
+    events = torch.zeros(B)
+
+    # fill tensors
+    for i, (traces, duration, event) in enumerate(batch):
+        Pi = traces.shape[0]
+
+        traces_padded[i, :Pi] = traces
+        masks[i, :Pi] = 1
+
+        durations[i] = duration
+        events[i] = event
+
+    # reshape for CNN
+    traces_flat = traces_padded.view(B * P_max, CH, L)
+
+    events = events.to(torch.bool)
+
+    return traces_flat, masks, durations, events
+    

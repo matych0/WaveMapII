@@ -63,12 +63,14 @@ def build_datasets(cfg, fold):
         training=True,
         transform=TrainTransforms,
         readjustonce=cfg.data.dataset.readjustonce,
+        filter_center=cfg.data.dataset.filter_center,
         segment_ms=cfg.data.dataset.segment_ms,
         filter_utilized=cfg.data.dataset.filter_utilized,
+        num_traces=cfg.data.dataset.num_traces,
         fold=fold,
-        controls_time_shift=cfg.training.label_transforms.shift,
         controls_time_gaussian_std=cfg.training.label_transforms.noise,
         random_seed=cfg.seed,
+        shuffle_annotations=cfg.data.dataset.shuffle_annotations,
     )
 
     val_dataset = DatasetClass(
@@ -78,8 +80,10 @@ def build_datasets(cfg, fold):
         training=False,
         transform=ValTransforms,
         readjustonce=cfg.data.dataset.readjustonce,
+        filter_center=cfg.data.dataset.filter_center,
         segment_ms=cfg.data.dataset.segment_ms,
         filter_utilized=cfg.data.dataset.filter_utilized,
+        num_traces=cfg.data.dataset.num_traces,
         fold=fold,
         random_seed=cfg.seed,
     )
@@ -97,10 +101,11 @@ def train_one_fold(cfg, fold):
     # ---- datasets ----
     train_dataset, val_dataset = build_datasets(cfg, fold)
     collate_fn = hydra.utils.get_object(cfg.data.dataset.dataset.collate_fn)
+    batch_size = cfg.training.hparams.batch_size
 
     train_loader = DataLoader(
         train_dataset,
-        batch_size=cfg.training.hparams.batch_size,
+        batch_size=batch_size,
         shuffle=True,
         collate_fn=collate_fn,
         generator=torch.Generator().manual_seed(cfg.seed)
@@ -108,7 +113,7 @@ def train_one_fold(cfg, fold):
 
     val_loader = DataLoader(
         val_dataset,
-        batch_size=cfg.training.hparams.batch_size,
+        batch_size=batch_size,
         shuffle=False,
         collate_fn=collate_fn
     )
@@ -158,7 +163,7 @@ def train_one_fold(cfg, fold):
                 continue
 
             else:
-                risks, _ = model(traces, masks)
+                risks, _ = model(traces, masks, batch_size=masks.size(0))
                 g_cases, g_controls = sample_cases_controls(risks, events, durations, n_controls)
 
                 optimizer.zero_grad()
@@ -199,7 +204,7 @@ def train_one_fold(cfg, fold):
                 if not events.any():
                     continue
 
-                risks, _ = model(traces, masks)
+                risks, _ = model(traces, masks, batch_size=masks.size(0))
                 g_cases, g_controls = sample_cases_controls(risks, events, durations, n_controls)
 
                 val_losses.append(loss_fn(g_cases, g_controls).item())
@@ -227,8 +232,6 @@ def train_one_fold(cfg, fold):
         "fold": fold,
     }
 
-
-
 # -------------------------------------------------------------
 # CV wrapper
 # -------------------------------------------------------------
@@ -239,5 +242,27 @@ def run_training(cfg: DictConfig):
     results = []
     for fold in range(cfg.folds):
         results.append(train_one_fold(cfg, fold))
+        print(f"Fold {fold} finished: Validation C-index: {results[-1]['final_val_cindex']:.4f}")
 
     return results
+
+
+if __name__ == "__main__":
+    from hydra import initialize, compose
+
+    with initialize(version_base=None, config_path="../config"):
+        cfg: DictConfig = compose(config_name="config", overrides=["data/transforms=patch_shuffle"])
+
+    # cfg.training.hparams.batch_size = 16
+
+    # cfg.training.hparams.n_controls = 8
+
+    # cfg.training.hparams.epochs = 5
+
+    print(cfg)
+
+    res = run_training(cfg)
+
+    print("Final validation C-index for each fold:")
+    for i, fold_result in enumerate(res):
+        print(f"Fold {fold_result['fold']}: {fold_result['final_val_cindex']:.4f}")
