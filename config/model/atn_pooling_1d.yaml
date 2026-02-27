@@ -9,8 +9,8 @@ resnet:
   in_features: 24
   kernel_size: 5
   stem_kernel_size: 17
-  blocks: [3, 3, 3, 3]
-  features: [24, 32, 48, 64]
+  blocks: [4, 4, 4, 4]
+  features: [32, 64, 128, 256]
   activation: "LReLU"
   downsampling_factor: 2
   normalization: "BatchN"
@@ -18,9 +18,9 @@ resnet:
   trace_stages: true
 
 mil_head:
-  input_size: 64
-  hidden_size: 64
-  attention_hidden_size: 32
+  input_size: 256
+  hidden_size: 256
+  attention_hidden_size: 128
   output_size: 1
   dropout: true
   dropout_prob: ${training.hparams.dropout_prob}

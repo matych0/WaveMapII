@@ -31,7 +31,7 @@ def get_activation(activation: str):
 
 def get_normalization(normalization: str, dim: int, num_channels: int = 0, num_groups: int = 1):
     if normalization is None:
-        return None
+        return nn.Identity()
 
     if normalization == "BatchN":
         return nn.BatchNorm1d(num_channels) if dim == 1 else nn.BatchNorm2d(num_channels)

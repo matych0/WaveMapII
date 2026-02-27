@@ -23,29 +23,11 @@ def set_seed(seed):
         torch.cuda.manual_seed_all(seed)
 
 
-def sample_cases_controls(risks, events, durations, n_controls):
-    """Sampling identical to avg_pooling.py and best_trial.py."""
-    device = risks.device
-
-    risks = risks.view(-1)
-    events = events.view(-1)
-    durations = durations.view(-1)
-
-    g_cases = risks[events]
-    if g_cases.numel() == 1:
-        g_cases = g_cases.reshape(1)
-
-    n_cases = g_cases.numel()
-    g_controls = torch.zeros(n_controls, n_cases, device=device)
-
-    for i in range(n_cases):
-        case_time = durations[events][i]
-        valid_controls = risks[durations >= case_time]
-        idx = torch.randint(0, len(valid_controls), (n_controls,), device=device)
-        g_controls[:, i] = valid_controls[idx]
-
-    return g_cases, g_controls
-
+def freeze_bn(m):
+    if isinstance(m, torch.nn.BatchNorm1d):
+        m.eval()
+        m.weight.requires_grad = False
+        m.bias.requires_grad = False
 
 # -------------------------------------------------------------
 # Dataset + loaders
@@ -120,10 +102,7 @@ def train_one_fold(cfg, fold):
 
     # ---- model ----
     ModelClass = hydra.utils.get_class(cfg.model.model_class)
-    model = ModelClass(cfg.model.resnet, cfg.model.mil_head).to(device)
-
-    # ---- optimizer + loss ----
-    loss_fn = hydra.utils.instantiate(cfg.training.loss).to(device)
+    model = ModelClass(cfg.model.mil_head).to(device) # cfg.model.resnet,
 
     optimizer = hydra.utils.instantiate(cfg.training.optimizer, params=model.parameters())
     scheduler = get_cosine_schedule_with_warmup(
@@ -132,26 +111,27 @@ def train_one_fold(cfg, fold):
         num_training_steps=cfg.training.hparams.epochs,
     )
 
-    cindex = ConcordanceIndex()
+    # ---- task -----
+    TaskClass = hydra.utils.get_class(cfg.training.task.handler)
+    task = TaskClass(cfg, device)
 
-    # ---- training ----
     history = {
         "train_loss": [],
         "val_loss": [],
-        "train_cindex": [],
-        "val_cindex": [],
     }
-
-    n_controls = cfg.training.hparams.n_controls
 
     for epoch in range(cfg.training.hparams.epochs):
 
+        # ===================== TRAIN =====================
         model.train()
-        total_train_loss = 0.0
 
-        epoch_risks = []
-        epoch_events = []
-        epoch_durations = []
+        # Freeze batch norm layers
+        # model.apply(freeze_bn)
+
+        task.reset()
+
+        total_train_loss = 0.0      # ← your original
+        n_train_batches = 0         # correct averaging when some batches skipped
 
         for traces, masks, durations, events in train_loader:
             traces = traces.to(device)
@@ -159,40 +139,39 @@ def train_one_fold(cfg, fold):
             durations = durations.to(device)
             events = events.to(device)
 
-            if not events.any():
+            outputs, _ = model(traces, masks, batch_size=masks.size(0))
+
+            loss = task.compute_loss(outputs, durations, events)
+
+            # some tasks (survival) may skip batch
+            if loss is None:
                 continue
 
-            else:
-                risks, _ = model(traces, masks, batch_size=masks.size(0))
-                g_cases, g_controls = sample_cases_controls(risks, events, durations, n_controls)
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
 
-                optimizer.zero_grad()
-                loss = loss_fn(g_cases, g_controls)
-                loss.backward()
-                optimizer.step()
+            total_train_loss += loss.item()      # ← your original
+            n_train_batches += 1
 
-                total_train_loss += loss.item()
+            task.update_train_metrics(outputs, durations, events)
 
-                epoch_risks.append(risks.detach().cpu().view(-1))
-                epoch_events.append(events.detach().cpu().view(-1))
-                epoch_durations.append(durations.detach().cpu().view(-1))
+        # ---- end train epoch ----
 
-        # ---- epoch end ----
-        avg_train_loss = total_train_loss / len(train_loader)
-        scheduler.step()
+        if n_train_batches > 0:
+            avg_train_loss = total_train_loss / n_train_batches   # ← your original (corrected)
+        else:
+            avg_train_loss = float("nan")
 
-        epoch_risks = torch.cat(epoch_risks)
-        epoch_events = torch.cat(epoch_events)
-        epoch_durations = torch.cat(epoch_durations)
+        scheduler.step()   # ← your original
 
-        train_cidx = cindex(estimate=epoch_risks, event=epoch_events, time=epoch_durations)
+        train_metrics = task.compute_epoch_train_metrics()
 
-        # ---- validation ----
+        # ===================== VALIDATION =====================
         model.eval()
+
         val_losses = []
-        val_preds = []
-        val_events_list = []
-        val_durations_list = []
+        n_val_batches = 0
 
         with torch.no_grad():
             for traces, masks, durations, events in val_loader:
@@ -201,33 +180,48 @@ def train_one_fold(cfg, fold):
                 durations = durations.to(device)
                 events = events.to(device)
 
-                if not events.any():
-                    continue
+                outputs, _ = model(traces, masks, batch_size=masks.size(0))
 
-                risks, _ = model(traces, masks, batch_size=masks.size(0))
-                g_cases, g_controls = sample_cases_controls(risks, events, durations, n_controls)
+                loss = task.compute_loss(outputs, durations, events)
 
-                val_losses.append(loss_fn(g_cases, g_controls).item())
-                val_preds.append(risks.detach().cpu().view(-1))
-                val_events_list.append(events.cpu().view(-1))
-                val_durations_list.append(durations.cpu().view(-1))
+                if loss is not None:
+                    val_losses.append(loss.item())
+                    n_val_batches += 1
 
-        val_loss = np.mean(val_losses)
-        val_preds = torch.cat(val_preds)
-        val_events_cat = torch.cat(val_events_list)
-        val_durations_cat = torch.cat(val_durations_list)
+                task.update_val_metrics(outputs, durations, events)
 
-        val_cidx = cindex(estimate=val_preds, event=val_events_cat, time=val_durations_cat)
+        if n_val_batches > 0:
+            val_loss = sum(val_losses) / n_val_batches
+        else:
+            val_loss = float("nan")
 
-        # ---- store metrics ----
+        val_metrics = task.compute_epoch_val_metrics()
+
+        # ===================== STORE HISTORY =====================
         history["train_loss"].append(avg_train_loss)
         history["val_loss"].append(val_loss)
-        history["train_cindex"].append(train_cidx)
-        history["val_cindex"].append(val_cidx)
 
+        # store task-dependent metrics generically
+        for k, v in train_metrics.items():
+            history.setdefault(f"train_{k}", []).append(v)
+
+        for k, v in val_metrics.items():
+            history.setdefault(f"val_{k}", []).append(v)
+
+        # ===================== OPTIONAL PRINT =====================
+        metric_str = " | ".join(
+            [f"train_{k}: {v:.4f}" for k, v in train_metrics.items()] +
+            [f"val_{k}: {v:.4f}" for k, v in val_metrics.items()]
+        )
+
+        print(
+            f"Epoch {epoch+1:03d} | "
+            f"train_loss: {avg_train_loss:.4f} | "
+            f"val_loss: {val_loss:.4f} | "
+            f"{metric_str}"
+        )
     return {
         "history": history,
-        "final_val_cindex": val_cidx,
         "model": model,   # <-- return full model object
         "fold": fold,
     }
@@ -242,7 +236,7 @@ def run_training(cfg: DictConfig):
     results = []
     for fold in range(cfg.folds):
         results.append(train_one_fold(cfg, fold))
-        print(f"Fold {fold} finished: Validation C-index: {results[-1]['final_val_cindex']:.4f}")
+        #print(f"Fold {fold} finished: Validation C-index: {results[-1]['final_val_cindex']:.4f}")
 
     return results
 
@@ -251,18 +245,16 @@ if __name__ == "__main__":
     from hydra import initialize, compose
 
     with initialize(version_base=None, config_path="../config"):
-        cfg: DictConfig = compose(config_name="config", overrides=["data/transforms=patch_shuffle"])
+        cfg: DictConfig = compose(config_name="config")
 
-    # cfg.training.hparams.batch_size = 16
+    cfg.training.hparams.batch_size = 16
 
-    # cfg.training.hparams.n_controls = 8
-
-    # cfg.training.hparams.epochs = 5
+    cfg.training.hparams.epochs = 100
 
     print(cfg)
 
     res = run_training(cfg)
 
-    print("Final validation C-index for each fold:")
+    """ print("Final validation C-index for each fold:")
     for i, fold_result in enumerate(res):
-        print(f"Fold {fold_result['fold']}: {fold_result['final_val_cindex']:.4f}")
+        print(f"Fold {fold_result['fold']}: {fold_result['final_val_cindex']:.4f}") """

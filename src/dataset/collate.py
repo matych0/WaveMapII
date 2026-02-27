@@ -149,4 +149,21 @@ def collate_patches(batch: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]
     events = events.to(torch.bool)
 
     return traces_flat, masks, durations, events
+
+
+def collate_amplitudes(batch: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """ Collates a batch of (voltages, duration, event) tuples for processing by zero padding. """
+    voltages: List[torch.Tensor] = [item[0] for item in batch]
+    durations: torch.Tensor = torch.stack([item[1] for item in batch])
+    events: torch.Tensor = torch.stack([item[2] for item in batch])
+
+    # Pad voltages along the H dimension
+    voltages_padded: torch.Tensor = pad_sequence(voltages, batch_first=True, padding_value=0.0)  # Shape [B, max_H]
+
+    # Create mask: 1 for real instances, 0 for padding
+    masks = torch.tensor(
+        [[1] * voltage.shape[0] + [0] * (voltages_padded.shape[1] - voltage.shape[0]) for voltage in voltages]
+    )
+
+    return voltages_padded, masks, durations, events
     

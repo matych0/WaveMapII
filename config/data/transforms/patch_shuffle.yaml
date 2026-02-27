@@ -10,12 +10,12 @@ train:
 
     - _target_: src.transforms.transforms.RandomPatchTimeShift
       random_seed: ${seed}
-      max_shift_frac: 0.5
+      max_shift_frac: 0.4
       max_prob: 0.3
 
     - _target_: src.transforms.transforms.RandomPatchFlipping
       random_seed: ${seed}
-      max_prob: 0.4
+      max_prob: 0.3
 
     - _target_: src.transforms.transforms.RandomSignalZeroing
       random_seed: ${seed}

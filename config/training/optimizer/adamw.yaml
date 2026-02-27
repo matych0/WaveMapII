@@ -3,3 +3,4 @@
 _target_: torch.optim.AdamW
 lr: ${training.hparams.lr}
 weight_decay: ${training.hparams.weight_decay}
+betas: [0.95, 0.9995]

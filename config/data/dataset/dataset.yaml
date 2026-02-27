@@ -7,6 +7,6 @@ dataset:
 startswith: "LA_WMP2"
 segment_ms: 100
 filter_utilized: True
-num_traces: null
+num_traces: 200
 readjustonce: True
 filter_center: null

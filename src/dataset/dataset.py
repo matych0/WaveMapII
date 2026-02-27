@@ -678,11 +678,89 @@ class EGMPatchDataset(Dataset):
         return traces, duration, event
     
 
-if __name__ == "__main__":
-    annotations_file = "/home/matych/lib/data/WaveMap/HDF/annotations.csv"
-    data_dir = "/home/matych/lib/data/WaveMap/HDF/"
+class AmplitudeDataset(Dataset):
+    """ Dataset for training and validation on amplitude features only."""
+    def __init__(
+            self,
+            annotations_file: os.PathLike,
+            data_dir: os.PathLike,
+            startswith: str = "",  
+            training: bool = True,
+            fold: int = 0,
+            filter_utilized: bool = False, 
+            num_traces: int = None,
+            controls_time_gaussian_std: int = 0, 
+            transform = None,
+            random_seed: int = 3052001,   
+            **kwargs,
+            ):
+        
+        self.transform = transform
+        self.filter_utilized = filter_utilized
+        self.num_traces = num_traces
+        self.training = training
+
+        # set the random seed for reproducibility
+        self.np_rng = np.random.default_rng(random_seed)
+
+        # read the annotations file
+        self.annotations = pd.read_csv(annotations_file)
+
+        if training == True:
+            self.annotations = self.annotations[self.annotations["fold"] != fold]
+
+        else: 
+            self.annotations = self.annotations[self.annotations["fold"] == fold]
+
+        self.annotations.reset_index(drop=True, inplace=True)
+        
+        if controls_time_gaussian_std > 0:
+            controls_mask = self.annotations['reccurence'] == 0
+            noise = self.np_rng.normal(loc=0, scale=controls_time_gaussian_std, size=controls_mask.sum())
+            noise = np.round(noise).astype(int)
+            self.annotations.loc[controls_mask, 'days_to_event'] += noise
+        
+        filepaths = collect_filepaths(self.annotations, data_dir, startswith)
+        
+        self.voltages = list()
+        for file_fullpath in filepaths:
+            _, _, metadata = read_hdf(file_fullpath, return_fs=False, metadata_keys=["peak2peak", "utilized"])
+            voltage = metadata["peak2peak"]
+            if self.filter_utilized:
+                utilized = metadata["utilized"]
+                voltage = voltage[utilized]
+            self.voltages.append(voltage)
+
+    def __len__(self):
+        return len(self.annotations)
     
-    dataset = EGMDataset(
+    def __getitem__(self, idx):
+        duration = self.annotations.at[idx, 'days_to_event']
+        event = self.annotations.at[idx, 'reccurence']
+        voltage = self.voltages[idx]
+
+        if self.num_traces:
+            if self.training:
+                self.np_rng.shuffle(voltage)
+
+            voltage = voltage[:self.num_traces]
+
+        if self.transform:
+            voltage = self.transform(voltage)
+
+        voltage = torch.from_numpy(voltage)
+        duration = torch.tensor(duration, dtype=torch.float32)
+        event = torch.tensor(event, dtype=torch.bool)
+
+        return voltage, duration, event
+        
+
+
+if __name__ == "__main__":
+    annotations_file = "/home/matych/lib/data/WaveMap/HDF5/annotations_complete.csv"
+    data_dir = "/home/matych/lib/data/WaveMap/HDF5/"
+    
+    """ dataset = EGMDataset(
         annotations_file=annotations_file,
         data_dir=data_dir,
         training=True,
@@ -694,16 +772,31 @@ if __name__ == "__main__":
         filter_utilized=False,
         transform=None,
         random_seed=3052001,
+    ) """
+
+    dataset = AmplitudeDataset(
+        annotations_file=annotations_file,
+        data_dir=data_dir,
+        training=True,
+        fold=0,
+        filter_utilized=True,
+        controls_time_gaussian_std=5,
+        transform=None,
+        random_seed=3052001,
+        num_traces=1500,
     )
     
     print(f"Dataset size: {len(dataset)}")
-    traces, duration, event = dataset[2]
-    print(f"Traces shape: {traces.shape}, Duration: {duration.shape}, Event: {event.shape}")
+    voltage, duration, event = dataset[2]
+    print(f"Voltage shape: {voltage.shape}, Duration: {duration.shape}, Event: {event.shape}")
 
-    from .collate import collate_patches, collate_padding
+    """  from .collate import collate_patches, collate_padding, collate_amplitudes
     from torch.utils.data import DataLoader
     
 
-    dataloader = DataLoader(dataset, batch_size=8, shuffle=False, collate_fn=collate_padding)
+    # dataloader = DataLoader(dataset, batch_size=8, shuffle=False, collate_fn=collate_padding)
+
+    dataloader = DataLoader(dataset, batch_size=8, shuffle=False, collate_fn=collate_amplitudes)
+
     batch = next(iter(dataloader))
-    print(f"Batched traces shape: {batch[0].shape}, masks shape: {batch[1].shape}, durations shape: {batch[2].shape}, events shape: {batch[3].shape}")
+    print(f"Batched voltages shape: {batch[0].shape}, masks shape: {batch[1].shape}, durations shape: {batch[2].shape}, events shape: {batch[3].shape}") """

@@ -1,0 +1,11 @@
+dataset:
+  class_name: "src.dataset.dataset.AmplitudeDataset"
+  collate_fn: "src.dataset.collate.collate_amplitudes"
+
+startswith: "LA_WMP2"
+segment_ms: null
+filter_utilized: True
+num_traces: 1500
+readjustonce: True
+filter_center: null
+shuffle_annotations: False

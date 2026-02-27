@@ -2,10 +2,11 @@
 
 defaults:
   - _self_
-  - model: atn_pooling_1d
+  - model: atn_pooling_feedforward
   - data/paths: paths
-  - data/dataset: patch_dataset
-  - data/transforms: patch_shuffle
+  - data/dataset: amplitude_dataset
+  - data/transforms: no_augmentations
+  - training/task: survival
   - training/hparams: hparams
   - training/loss: coxph
   - training/optimizer: adamw
@@ -13,7 +14,7 @@ defaults:
   - training/label_transforms: label_noise
 
 study_name: "WMP2"
-experiment_name: "architecture_tuning"
-run_name: "small_arch_full_dataset_augmentations"
+experiment_name: "simple_model_benchmark"
+run_name: "peak_to_peak_classification"
 seed: 220920
 folds: 3

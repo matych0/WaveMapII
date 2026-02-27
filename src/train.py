@@ -36,6 +36,8 @@ def main(cfg: DictConfig):
 
         mlflow.set_tag("model_type", cfg.model.name) # Add a tag for easy filtering
 
+        mlflow.log_dict(cfg, "config.json")
+
         results = run_training(cfg)
 
         # log fold results
@@ -50,15 +52,26 @@ def main(cfg: DictConfig):
                     registered_model_name=f"{cfg.model.name}"  # optional but recommended
                 ) """
 
+                history = fold["history"]
+
                 for j in range(cfg.training.hparams.epochs):
-                    mlflow.log_metric(f"train_loss", fold["history"]["train_loss"][j], step=j)
-                    mlflow.log_metric(f"val_loss", fold["history"]["val_loss"][j], step=j)
-                    mlflow.log_metric(f"train_cindex", fold["history"]["train_cindex"][j], step=j)
-                    mlflow.log_metric(f"val_cindex", fold["history"]["val_cindex"][j], step=j)
+                    for metric_name, values in history.items():
+                        if j < len(values) and values[j] is not None:
+                            mlflow.log_metric(metric_name, float(values[j]), step=j)
 
         # log average
-        avg_cidx = sum(f["final_val_cindex"] for f in results) / len(results)
-        mlflow.log_metric("cindex_mean", avg_cidx)
+        val_metric_name = None
+        for k in results[0]["history"].keys():
+            if k.startswith("val_") and k != "val_loss":
+                val_metric_name = k
+                break
+
+        if val_metric_name is not None:
+            final_vals = []
+            for f in results:
+                vals = f["history"][val_metric_name]
+                final_vals.append(vals[-1])
+            mlflow.log_metric(f"{val_metric_name}_mean", sum(final_vals) / len(final_vals))
 
         return results
 
