@@ -6,9 +6,9 @@ defaults:
   - data/paths: paths
   - data/dataset: amplitude_dataset
   - data/transforms: no_augmentations
-  - training/task: survival
+  - training/task: classification
   - training/hparams: hparams
-  - training/loss: coxph
+  - training/loss: bce
   - training/optimizer: adamw
   - training/scheduler: cosine
   - training/label_transforms: label_noise

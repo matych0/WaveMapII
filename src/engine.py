@@ -2,6 +2,7 @@
 
 import os
 import torch
+import torch.nn as nn
 import numpy as np
 from torch.utils.data import DataLoader
 from torchsurv.metrics.cindex import ConcordanceIndex
@@ -28,6 +29,22 @@ def freeze_bn(m):
         m.eval()
         m.weight.requires_grad = False
         m.bias.requires_grad = False
+
+
+def initialize_weights(m):
+    if isinstance(m, nn.Linear):
+        # 1. Kaiming Normal is preferred for ReLU layers in the Encoder
+        nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+        if m.bias is not None:
+            nn.init.constant_(m.bias, 0)
+            
+    # 2. Xavier/Glorot is better for the Attention layers (Tanh/Sigmoid)
+    # We apply this specifically to the attention components
+    if hasattr(m, 'attention_V') or hasattr(m, 'attention_U'):
+        for layer in [m.attention_V, m.attention_U]:
+            if isinstance(layer[0], nn.Linear):
+                nn.init.xavier_uniform_(layer[0].weight)
+
 
 # -------------------------------------------------------------
 # Dataset + loaders
@@ -102,7 +119,8 @@ def train_one_fold(cfg, fold):
 
     # ---- model ----
     ModelClass = hydra.utils.get_class(cfg.model.model_class)
-    model = ModelClass(cfg.model.mil_head).to(device) # cfg.model.resnet,
+    model = ModelClass().to(device) # cfg.model.resnet,cfg.model.mil_head
+    model.apply(initialize_weights)
 
     optimizer = hydra.utils.instantiate(cfg.training.optimizer, params=model.parameters())
     scheduler = get_cosine_schedule_with_warmup(
@@ -180,7 +198,9 @@ def train_one_fold(cfg, fold):
                 durations = durations.to(device)
                 events = events.to(device)
 
-                outputs, _ = model(traces, masks, batch_size=masks.size(0))
+                outputs, att = model(traces, masks, batch_size=masks.size(0))
+
+                #print(f"Max attention weight in batch: {att.max().item():.4f}")
 
                 loss = task.compute_loss(outputs, durations, events)
 

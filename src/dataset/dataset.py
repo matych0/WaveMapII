@@ -691,7 +691,8 @@ class AmplitudeDataset(Dataset):
             num_traces: int = None,
             controls_time_gaussian_std: int = 0, 
             transform = None,
-            random_seed: int = 3052001,   
+            random_seed: int = 3052001,
+            shuffle_annotations: bool = False,
             **kwargs,
             ):
         
@@ -708,6 +709,9 @@ class AmplitudeDataset(Dataset):
 
         if training == True:
             self.annotations = self.annotations[self.annotations["fold"] != fold]
+            if shuffle_annotations:
+                self.annotations.reset_index(drop=True, inplace=True)
+                self.annotations[["reccurence", "days_to_event"]] = self.annotations[["reccurence", "days_to_event"]].sample(frac=1, random_state=random_seed).reset_index(drop=True)
 
         else: 
             self.annotations = self.annotations[self.annotations["fold"] == fold]
