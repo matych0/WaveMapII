@@ -267,7 +267,7 @@ if __name__ == "__main__":
     with initialize(version_base=None, config_path="../config"):
         cfg: DictConfig = compose(config_name="config")
 
-    cfg.training.hparams.batch_size = 16
+    cfg.training.hparams.batch_size = 160
 
     cfg.training.hparams.epochs = 100
 

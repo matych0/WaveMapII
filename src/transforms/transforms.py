@@ -243,6 +243,25 @@ class Normalize(BaseTransform):
         return x
     
 
+class StandardizeAmplitudesCoordinates:
+    """Returns Z-score of amplitudes (global_level) and standardized coordinates (individual-level)"""
+    def __init__(self, mean: float = 1.2272, std: float = 2.3415, **kwargs):
+        super().__init__()
+
+        self.mean = mean
+        self.std = std
+
+    def __call__(self, x, **kwargs):
+        
+        x[:,0] = (x[:,0] - self.mean) / self.std
+
+        if x.shape[-1] > 1:
+            for i in range(1, x.shape[-1]):
+                x[:,i] = (x[:,i] - x[:,i].mean()) / (x[:,i].std() + 1e-8)
+
+        return x
+    
+
 # --------------------- Classes for data augmentation ----------------------
 # --------------------------------------------------------------------------
 

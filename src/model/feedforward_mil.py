@@ -99,7 +99,7 @@ class AFibAttentionNet(nn.Module):
         # 1. Instance Encoder
         # Maps the single scalar voltage to a higher dimensional space
         self.feature_extractor = nn.Sequential(
-            nn.Linear(1, 16),
+            nn.Linear(4, 16),
             nn.ReLU(),
             nn.Linear(16, 32),
             nn.ReLU(),
@@ -121,13 +121,13 @@ class AFibAttentionNet(nn.Module):
 
     def forward(self, x, mask=None, **kwargs):
         # x: [B, I]
-        B, I = x.shape
+        B, I, CH = x.shape
         
         # Add the feature dimension: [B, I] -> [B, I, 1]
-        x = x.unsqueeze(-1)
+        # x = x.unsqueeze(-1)
         
         # Flatten for the MLP: [B*I, 1]
-        x_flat = x.view(-1, 1)
+        x_flat = x.view(-1, CH)
         H = self.feature_extractor(x_flat) # [B*I, embedding_dim]
         
         # Compute Attention

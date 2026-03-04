@@ -728,8 +728,11 @@ class AmplitudeDataset(Dataset):
         
         self.voltages = list()
         for file_fullpath in filepaths:
-            _, _, metadata = read_hdf(file_fullpath, return_fs=False, metadata_keys=["peak2peak", "utilized"])
-            voltage = metadata["peak2peak"]
+            _, _, metadata = read_hdf(file_fullpath, return_fs=False, metadata_keys=["peak2peak", "utilized", "roving x", "roving y", "roving z"])
+            peak_to_peak, x, y, z = metadata["peak2peak"], metadata["roving x"], metadata["roving y"], metadata["roving z"]
+
+            voltage = np.stack([peak_to_peak, x, y, z], axis=1)
+
             if self.filter_utilized:
                 utilized = metadata["utilized"]
                 voltage = voltage[utilized]

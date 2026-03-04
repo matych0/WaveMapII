@@ -5,10 +5,10 @@ defaults:
   - model: atn_pooling_feedforward
   - data/paths: paths
   - data/dataset: amplitude_dataset
-  - data/transforms: no_augmentations
-  - training/task: classification
+  - data/transforms: amplitude_norm
+  - training/task: survival
   - training/hparams: hparams
-  - training/loss: bce
+  - training/loss: coxph
   - training/optimizer: adamw
   - training/scheduler: cosine
   - training/label_transforms: label_noise

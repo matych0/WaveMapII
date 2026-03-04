@@ -1,0 +1,12 @@
+
+
+train: 
+  _target_: torchvision.transforms.Compose
+  transforms:
+    - _target_: src.transforms.transforms.StandardizeAmplitudesCoordinates
+    
+
+val:
+  _target_: torchvision.transforms.Compose
+  transforms:
+    - _target_: src.transforms.transforms.StandardizeAmplitudesCoordinates

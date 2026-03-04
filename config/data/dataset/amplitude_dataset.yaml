@@ -5,7 +5,7 @@ dataset:
 startswith: "LA_WMP2"
 segment_ms: null
 filter_utilized: True
-num_traces: null
+num_traces: 400
 readjustonce: True
 filter_center: null
 shuffle_annotations: False
