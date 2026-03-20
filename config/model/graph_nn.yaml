@@ -1,0 +1,5 @@
+name: "atn_pooling_1d"
+
+model_class: "src.model.graph_nn.EdgeConvGNN"
+
+in_channels: 5

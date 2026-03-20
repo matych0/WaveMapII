@@ -4,8 +4,11 @@ import os
 import h5py
 import numpy as np
 import pandas as pd
+
 import torch
 from torch.utils.data import Dataset
+from torch_geometric.data import Dataset, Data
+from torch_geometric.nn import radius_graph
 
 
 def read_hdf(
@@ -205,6 +208,28 @@ def pad_channels(patch, target_ch=24):
             mode="constant",
             constant_values=0
         )
+    
+
+def random_node_sample(data, radius, max_nodes=500):
+
+    N = data.x.shape[0]
+
+    if N > max_nodes:
+
+        idx = torch.randperm(N)[:max_nodes]
+
+        data.x = data.x[idx]
+        data.pos = data.pos[idx]
+
+        edge_index = radius_graph(data.pos, r=radius)
+        data.edge_index = edge_index
+
+        start, end = edge_index
+        edge_len = torch.norm(data.pos[start] - data.pos[end], dim=1, keepdim=True)
+        edge_len = edge_len / radius
+        data.edge_attr = edge_len
+
+    return data
 
 
 class HDFDataset(Dataset):
@@ -760,6 +785,137 @@ class AmplitudeDataset(Dataset):
         event = torch.tensor(event, dtype=torch.bool)
 
         return voltage, duration, event
+    
+
+class GraphFeatureDataset(Dataset):
+
+    def __init__(
+        self,
+        annotations_file: os.PathLike,
+        data_dir: os.PathLike,
+        startswith: str = "",  
+        training: bool = True,
+        fold: int = 0,
+        radius: float = 4.0,
+        filter_utilized: bool = False, 
+        num_traces: int = None,
+        controls_time_gaussian_std: int = 0, 
+        transform = None,
+        random_seed: int = 3052001,
+        **kwargs,
+    ):
+
+        super().__init__()
+
+        self.radius = radius
+        self.transform = transform
+        self.filter_utilized = filter_utilized
+        self.training = training
+        self.num_traces = num_traces
+
+        self.np_rng = np.random.default_rng(random_seed)
+
+        self.annotations = pd.read_csv(annotations_file)
+
+        if training:
+            self.annotations = self.annotations[self.annotations["fold"] != fold]
+        else:
+            self.annotations = self.annotations[self.annotations["fold"] == fold]
+
+        self.annotations.reset_index(drop=True, inplace=True)
+
+        filepaths = collect_filepaths(self.annotations, data_dir, startswith)
+
+        self.graphs = []
+
+        for idx, file_fullpath in enumerate(filepaths):
+
+            _, _, metadata = read_hdf(
+                file_fullpath,
+                return_fs=False,
+                metadata_keys=["peak2peak", "utilized", "rov LAT", "ref LAT", "roving x", "roving y", "roving z"]
+            )
+
+            Vpp = metadata["peak2peak"]
+            rov_LAT = metadata["rov LAT"]
+            ref_LAT = metadata["ref LAT"]
+            x = metadata["roving x"]
+            y = metadata["roving y"]
+            z = metadata["roving z"]
+
+            coords = np.stack([x, y, z], axis=1)
+
+            if self.filter_utilized:
+                utilized = metadata["utilized"]
+                coords = coords[utilized]
+                Vpp = Vpp[utilized]
+                rov_LAT = rov_LAT[utilized]
+                ref_LAT = ref_LAT[utilized]
+
+            # coord standardization
+            coords_norm = np.copy(coords)
+            coords_norm = (coords_norm - coords_norm.mean(axis=0)) / coords_norm.std(axis=0)
+
+            # Vpp = (Vpp - Vpp.mean()) / Vpp.std()
+            Vpp = np.tanh(Vpp / 5)
+            #Vpp = (Vpp - Vpp.mean()) / Vpp.std()
+            Vpp = np.stack([Vpp], axis=1)
+
+            # LAT shifting to begin at 0
+            rov_LAT = np.array([float(x.decode()) for x in rov_LAT])
+            ref_LAT = np.array([float(x.decode()) for x in ref_LAT])
+            delta_LAT = rov_LAT - ref_LAT
+            delta_LAT = delta_LAT - delta_LAT.min()
+            #delta_LAT = (delta_LAT - delta_LAT.mean()) / delta_LAT.std()
+            delta_LAT = np.stack([delta_LAT], axis=1)
+
+            # node features construction
+            node_features = np.hstack([Vpp, delta_LAT, coords_norm]) # 
+
+            # convert to tensors
+            pos = torch.tensor(coords, dtype=torch.float)
+            x_feat = torch.tensor(node_features, dtype=torch.float)
+
+            # construct graph
+            edge_index = radius_graph(pos, r=self.radius, loop=False)
+
+            # compute edge lengths
+            start, end = edge_index
+            edge_len = torch.norm(pos[start] - pos[end], dim=1, keepdim=True)
+            edge_len = edge_len / self.radius
+
+            # label
+            event = self.annotations.at[idx, "reccurence"]
+            duration = self.annotations.at[idx, "days_to_event"]
+
+            y_label = torch.tensor([[event, duration]], dtype=torch.float)
+
+            graph = Data(
+                x=x_feat,
+                pos=pos,
+                edge_index=edge_index,
+                edge_attr=edge_len,
+                y=y_label
+            )
+
+            self.graphs.append(graph)
+
+    def len(self):
+        return len(self.graphs)
+
+
+    def get(self, idx):
+
+        data = self.graphs[idx]
+
+        if self.num_traces:
+            #if self.training:
+            data = random_node_sample(data, self.radius, max_nodes=self.num_traces)
+
+        if self.transform:
+            data = self.transform(data)
+
+        return data
         
 
 
@@ -781,7 +937,7 @@ if __name__ == "__main__":
         random_seed=3052001,
     ) """
 
-    dataset = AmplitudeDataset(
+    """ dataset = AmplitudeDataset(
         annotations_file=annotations_file,
         data_dir=data_dir,
         training=True,
@@ -791,12 +947,12 @@ if __name__ == "__main__":
         transform=None,
         random_seed=3052001,
         num_traces=1500,
-    )
+    ) """
     
-    print(f"Dataset size: {len(dataset)}")
+    """ print(f"Dataset size: {len(dataset)}")
     voltage, duration, event = dataset[2]
     print(f"Voltage shape: {voltage.shape}, Duration: {duration.shape}, Event: {event.shape}")
-
+    """
     """  from .collate import collate_patches, collate_padding, collate_amplitudes
     from torch.utils.data import DataLoader
     
@@ -807,3 +963,53 @@ if __name__ == "__main__":
 
     batch = next(iter(dataloader))
     print(f"Batched voltages shape: {batch[0].shape}, masks shape: {batch[1].shape}, durations shape: {batch[2].shape}, events shape: {batch[3].shape}") """
+
+    from torch_geometric.loader import DataLoader
+    
+    dataset = GraphFeatureDataset(
+        annotations_file=annotations_file,
+        data_dir=data_dir,
+        training=True,
+        fold=0,
+        radius=5.0,
+        filter_utilized=True,
+        num_traces=500,
+        controls_time_gaussian_std=5,
+        transform=None,
+        random_seed=3052001,
+    )
+
+    train_loader = DataLoader(
+        dataset,
+        batch_size=8,
+        shuffle=True
+    )
+
+    batch = next(iter(train_loader))
+    print(batch)
+
+    import matplotlib.pyplot as plt
+    x = batch[0].x.numpy()
+    fig = plt.figure()
+    ax = fig.add_subplot(projection='3d')
+
+    sc = ax.scatter(
+        x[:,-3],
+        x[:,-2],
+        x[:,-1],
+        c=x[:,1],
+        cmap='viridis',
+        s=20
+    )
+
+    fig.colorbar(sc, ax=ax)
+
+    ax.set_xlabel("x")
+    ax.set_ylabel("y")
+    ax.set_zlabel("z")
+
+    plt.show()
+
+    print("Done")
+        
+

@@ -2,6 +2,9 @@ dataset:
   class_name: "src.dataset.dataset.AmplitudeDataset"
   collate_fn: "src.dataset.collate.collate_amplitudes"
 
+dataloader:
+  class_name: torch.utils.data.DataLoader
+
 startswith: "LA_WMP2"
 segment_ms: null
 filter_utilized: True

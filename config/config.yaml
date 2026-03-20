@@ -2,9 +2,9 @@
 
 defaults:
   - _self_
-  - model: atn_pooling_feedforward
+  - model: graph_nn
   - data/paths: paths
-  - data/dataset: amplitude_dataset
+  - data/dataset: graph_dataset
   - data/transforms: amplitude_norm
   - training/task: survival
   - training/hparams: hparams
@@ -14,7 +14,7 @@ defaults:
   - training/label_transforms: label_noise
 
 study_name: "WMP2"
-experiment_name: "simple_model_benchmark"
-run_name: "peak_to_peak_classification"
+experiment_name: "graph_nn_tryout"
+run_name: "all_points_radius_7_mm_aggr_sum"
 seed: 220920
 folds: 3

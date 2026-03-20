@@ -4,6 +4,9 @@ dataset:
   class_name: "src.dataset.dataset.EGMDataset"
   collate_fn: "src.dataset.collate.collate_padding"
 
+dataloader:
+  class_name: torch.utils.data.DataLoader
+
 startswith: "LA_WMP2"
 segment_ms: 100
 filter_utilized: True

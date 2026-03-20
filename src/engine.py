@@ -60,10 +60,11 @@ def build_datasets(cfg, fold):
         data_dir=cfg.data.paths.data_dir,
         startswith=cfg.data.dataset.startswith,
         training=True,
-        transform=TrainTransforms,
+        transform=None,  #TrainTransforms,
         readjustonce=cfg.data.dataset.readjustonce,
         filter_center=cfg.data.dataset.filter_center,
         segment_ms=cfg.data.dataset.segment_ms,
+        radius=cfg.data.dataset.radius,
         filter_utilized=cfg.data.dataset.filter_utilized,
         num_traces=cfg.data.dataset.num_traces,
         fold=fold,
@@ -77,10 +78,11 @@ def build_datasets(cfg, fold):
         data_dir=cfg.data.paths.data_dir,
         startswith=cfg.data.dataset.startswith,
         training=False,
-        transform=ValTransforms,
+        transform=None,  #ValTransforms,
         readjustonce=cfg.data.dataset.readjustonce,
         filter_center=cfg.data.dataset.filter_center,
         segment_ms=cfg.data.dataset.segment_ms,
+        radius=cfg.data.dataset.radius,
         filter_utilized=cfg.data.dataset.filter_utilized,
         num_traces=cfg.data.dataset.num_traces,
         fold=fold,
@@ -99,10 +101,16 @@ def train_one_fold(cfg, fold):
 
     # ---- datasets ----
     train_dataset, val_dataset = build_datasets(cfg, fold)
-    collate_fn = hydra.utils.get_object(cfg.data.dataset.dataset.collate_fn)
+
+    collate_fn = None
+    if cfg.data.dataset.dataset.get("collate_fn"):
+        collate_fn = hydra.utils.get_object(cfg.data.dataset.dataset.collate_fn)
+    
     batch_size = cfg.training.hparams.batch_size
 
-    train_loader = DataLoader(
+    DataloaderClass = hydra.utils.get_class(cfg.data.dataset.dataloader.class_name)
+
+    train_loader = DataloaderClass(
         train_dataset,
         batch_size=batch_size,
         shuffle=True,
@@ -110,7 +118,7 @@ def train_one_fold(cfg, fold):
         generator=torch.Generator().manual_seed(cfg.seed)
     )
 
-    val_loader = DataLoader(
+    val_loader = DataloaderClass(
         val_dataset,
         batch_size=batch_size,
         shuffle=False,
@@ -119,8 +127,8 @@ def train_one_fold(cfg, fold):
 
     # ---- model ----
     ModelClass = hydra.utils.get_class(cfg.model.model_class)
-    model = ModelClass().to(device) # cfg.model.resnet,cfg.model.mil_head
-    model.apply(initialize_weights)
+    model = ModelClass(in_channels=cfg.model.in_channels).to(device) # cfg.model.resnet,cfg.model.mil_head
+    # model.apply(initialize_weights)
 
     optimizer = hydra.utils.instantiate(cfg.training.optimizer, params=model.parameters())
     scheduler = get_cosine_schedule_with_warmup(
@@ -151,14 +159,23 @@ def train_one_fold(cfg, fold):
         total_train_loss = 0.0      # ← your original
         n_train_batches = 0         # correct averaging when some batches skipped
 
-        for traces, masks, durations, events in train_loader:
+        """ for traces, masks, durations, events in train_loader:
             traces = traces.to(device)
             masks = masks.to(device)
             durations = durations.to(device)
             events = events.to(device)
 
-            outputs, _ = model(traces, masks, batch_size=masks.size(0))
+            outputs, _ = model(traces, masks, batch_size=masks.size(0)) """
+        for data in train_loader:
+            data = data.to(device)
+            
+            outputs = model(data)
+            
+            events = data.y[:, 0]
+            events = events.bool()
 
+            durations = data.y[:, 1]
+            
             loss = task.compute_loss(outputs, durations, events)
 
             # some tasks (survival) may skip batch
@@ -192,7 +209,7 @@ def train_one_fold(cfg, fold):
         n_val_batches = 0
 
         with torch.no_grad():
-            for traces, masks, durations, events in val_loader:
+            """ for traces, masks, durations, events in val_loader:
                 traces = traces.to(device)
                 masks = masks.to(device)
                 durations = durations.to(device)
@@ -202,6 +219,19 @@ def train_one_fold(cfg, fold):
 
                 #print(f"Max attention weight in batch: {att.max().item():.4f}")
 
+                loss = task.compute_loss(outputs, durations, events) """
+            
+            for data in val_loader:
+                
+                data = data.to(device)
+                
+                outputs = model(data)
+
+                events = data.y[:, 0]
+                events = events.bool()  # Ensure events are float for loss computation
+
+                durations = data.y[:, 1]
+                
                 loss = task.compute_loss(outputs, durations, events)
 
                 if loss is not None:
@@ -267,9 +297,11 @@ if __name__ == "__main__":
     with initialize(version_base=None, config_path="../config"):
         cfg: DictConfig = compose(config_name="config")
 
-    cfg.training.hparams.batch_size = 160
+    cfg.training.hparams.batch_size = 32
 
-    cfg.training.hparams.epochs = 100
+    cfg.training.hparams.epochs = 150
+
+    cfg.training.hparams.lr = 1e-3
 
     print(cfg)
 
