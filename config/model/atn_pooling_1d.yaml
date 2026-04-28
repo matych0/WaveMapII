@@ -4,23 +4,24 @@ name: "atn_pooling_1d"
 
 model_class: "src.model.cox_mil_resnet.CoxAttentionResnet"
 
-resnet:
-  dim: 1
-  in_features: 24
-  kernel_size: 5
-  stem_kernel_size: 17
-  blocks: [4, 4, 4, 4]
-  features: [32, 64, 128, 256]
-  activation: "LReLU"
-  downsampling_factor: 2
-  normalization: "BatchN"
-  preactivation: false
-  trace_stages: true
+hparams:
+  resnet:
+    dim: 1
+    in_features: 24
+    kernel_size: 5
+    stem_kernel_size: 17
+    blocks: [4, 4, 4, 4]
+    features: [32, 64, 128, 256]
+    activation: "LReLU"
+    downsampling_factor: 2
+    normalization: "BatchN"
+    preactivation: false
+    trace_stages: true
 
-mil_head:
-  input_size: 256
-  hidden_size: 256
-  attention_hidden_size: 128
-  output_size: 1
-  dropout: true
-  dropout_prob: ${training.hparams.dropout_prob}
+  mil_head:
+    input_size: 256
+    hidden_size: 256
+    attention_hidden_size: 128
+    output_size: 1
+    dropout: true
+    dropout_prob: ${training.hparams.dropout_prob}

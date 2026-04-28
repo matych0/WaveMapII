@@ -14,7 +14,7 @@ class CoxAttentionResnet(nn.Module):
     designed for Cox Proportional Hazards modeling.
     """
 
-    def __init__(self, resnet_params: Dict, amil_params: Dict):
+    def __init__(self, resnet: Dict, mil_head: Dict):
         """
         Initializes the CoxAttentionResnet.
 
@@ -25,22 +25,27 @@ class CoxAttentionResnet(nn.Module):
         super().__init__()
 
         # Initialize the LocalActivationResNet
-        self.resnet: nn.Module = LocalActivationResNet(**resnet_params)
+        self.resnet: nn.Module = LocalActivationResNet(**resnet)
 
         # Initialize the AMIL layer
-        self.amil: nn.Module = AttentionPooling(**amil_params)
+        self.amil: nn.Module = AttentionPooling(**mil_head)
 
-    def forward(self, x: torch.Tensor, mask: torch.Tensor, batch_size=None) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, data:Dict) -> torch.Tensor:
         """
         Forward pass of the CoxAttentionResnet.
 
         Args:
-            x: Input tensor.
-            mask: Mask tensor. This is used to ignore padding in the input.
+            data: A dictionary containing the input tensor and mask.
+                - "traces": Input tensor.
+                - "mask": Mask tensor to ignore padding in the input.
 
         Returns:
             A tuple containing the risk and attention weights.
         """
+        x, mask = data["traces"], data["mask"]
+
+        batch_size=mask.size(0)
+
         # Pass input through ResNet
         x = self.resnet(x)
 
@@ -55,7 +60,7 @@ class CoxAttentionResnet(nn.Module):
         # Pass through AMIL
         risk, attention_weights = self.amil(x, mask)
 
-        return risk, attention_weights
+        return risk
     
     
 class CoxMaxResnet(nn.Module):
@@ -64,7 +69,7 @@ class CoxMaxResnet(nn.Module):
     designed for Cox Proportional Hazards modeling.
     """
 
-    def __init__(self, resnet_params: Dict, maxmil_params: Dict):
+    def __init__(self, resnet: Dict, mil_head: Dict):
         """
         Initializes the CoxMaxResnet.
 
@@ -75,32 +80,41 @@ class CoxMaxResnet(nn.Module):
         super().__init__()
 
         # Initialize the LocalActivationResNet
-        self.resnet: nn.Module = LocalActivationResNet(**resnet_params)
+        self.resnet: nn.Module = LocalActivationResNet(**resnet)
 
         # Initialize the MaxPooling layer
-        self.maxmil: nn.Module = MaxPoolingBlock(**maxmil_params)
+        self.maxmil: nn.Module = MaxPoolingBlock(**mil_head)
 
-    def forward(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+    def forward(self, data: Dict) -> torch.Tensor:
         """
         Forward pass of the CoxMaxResnet.
 
         Args:
-            x: Input tensor.
-            mask: Mask tensor. This is used to ignore padding in the input.
+            data: A dictionary containing the input tensor and mask.
+                - "traces": Input tensor.
+                - "mask": Mask tensor to ignore padding in the input.
 
         Returns:
             Risk scores from the MaxPooling layer.
         """
+        x, mask = data["traces"], data["mask"]
+
+        batch_size=mask.size(0)
+
         # Pass input through ResNet
         x = self.resnet(x)
 
-        # Transpose dimensions for compatibility
-        x = x.transpose(-2, -1)
+        if x.ndim == 2 and batch_size is not None:
+            n_patches = x.size(0) // batch_size
+            x = x.view(batch_size, n_patches, x.size(-1))
+
+        else:
+            x = x.transpose(-2, -1)
 
         # Pass through MaxPooling layer
         risk = self.maxmil(x, mask)
 
-        return risk, None
+        return risk
     
     
 class CoxAvgResnet(nn.Module):
@@ -109,7 +123,7 @@ class CoxAvgResnet(nn.Module):
     designed for Cox Proportional Hazards modeling.
     """
 
-    def __init__(self, resnet_params: Dict, avgmil_params: Dict):
+    def __init__(self, resnet: Dict, mil_head: Dict):
         """
         Initializes the CoxAvgResnet.
 
@@ -120,32 +134,41 @@ class CoxAvgResnet(nn.Module):
         super().__init__()
 
         # Initialize the LocalActivationResNet
-        self.resnet: nn.Module = LocalActivationResNet(**resnet_params)
+        self.resnet: nn.Module = LocalActivationResNet(**resnet)
 
         # Initialize the AveragePooling layer
-        self.avgmil: nn.Module = AveragePoolingBlock(**avgmil_params)
+        self.avgmil: nn.Module = AveragePoolingBlock(**mil_head)
 
-    def forward(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+    def forward(self, data: Dict) -> torch.Tensor:
         """
         Forward pass of the CoxAvgResnet.
 
         Args:
-            x: Input tensor.
-            mask: Mask tensor. This is used to ignore padding in the input.
-
+            data: A dictionary containing the input tensor and mask.
+                - "traces": Input tensor.
+                - "mask": Mask tensor to ignore padding in the input.
         Returns:
             Risk scores from the AveragePooling layer.
         """
+
+        x, mask = data["traces"], data["mask"]
+
+        batch_size = mask.size(0)
+
         # Pass input through ResNet
         x = self.resnet(x)
 
-        # Transpose dimensions for compatibility
-        x = x.transpose(-2, -1)
+        if x.ndim == 2 and batch_size is not None:
+            n_patches = x.size(0) // batch_size
+            x = x.view(batch_size, n_patches, x.size(-1))
+        
+        else:
+            x = x.transpose(-2, -1)
 
         # Pass through AveragePooling layer
         risk = self.avgmil(x, mask)
 
-        return risk, None
+        return risk
     
 
 if __name__ == "__main__":

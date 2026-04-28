@@ -2,7 +2,7 @@ name: "atn_pooling_feedforward"
 
 model_class: "src.model.feedforward_mil.AFibAttentionNet"
 
-mil_head:
+hparams:
   input_size: 1
   hidden_size: 64
   attention_hidden_size: 32

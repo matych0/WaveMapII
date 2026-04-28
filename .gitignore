@@ -46,6 +46,7 @@ MANIFEST
 mlruns/
 outputs/
 multirun/
+inference_results/
 *.db
 
 # Data Management

@@ -24,6 +24,19 @@ def set_seed(seed):
         torch.cuda.manual_seed_all(seed)
 
 
+def to_device(batch, device):
+    # Case 1: objects like PyG Data, tensors, etc.
+    if hasattr(batch, "to"):
+        return batch.to(device)
+
+    # Case 2: dict
+    elif isinstance(batch, dict):
+        return {k: v.to(device) for k, v in batch.items()}
+    
+    else:
+        raise ValueError(f"Unsupported batch type: {type(batch)}")
+
+
 def freeze_bn(m):
     if isinstance(m, torch.nn.BatchNorm1d):
         m.eval()
@@ -58,35 +71,21 @@ def build_datasets(cfg, fold):
     train_dataset = DatasetClass(
         annotations_file=cfg.data.paths.annotations_file,
         data_dir=cfg.data.paths.data_dir,
-        startswith=cfg.data.dataset.startswith,
         training=True,
-        transform=None,  #TrainTransforms,
-        readjustonce=cfg.data.dataset.readjustonce,
-        filter_center=cfg.data.dataset.filter_center,
-        segment_ms=cfg.data.dataset.segment_ms,
-        radius=cfg.data.dataset.radius,
-        filter_utilized=cfg.data.dataset.filter_utilized,
-        num_traces=cfg.data.dataset.num_traces,
+        transform=TrainTransforms,
         fold=fold,
-        controls_time_gaussian_std=cfg.training.label_transforms.noise,
         random_seed=cfg.seed,
-        shuffle_annotations=cfg.data.dataset.shuffle_annotations,
+        **cfg.data.dataset.params
     )
 
     val_dataset = DatasetClass(
         annotations_file=cfg.data.paths.annotations_file,
         data_dir=cfg.data.paths.data_dir,
-        startswith=cfg.data.dataset.startswith,
         training=False,
-        transform=None,  #ValTransforms,
-        readjustonce=cfg.data.dataset.readjustonce,
-        filter_center=cfg.data.dataset.filter_center,
-        segment_ms=cfg.data.dataset.segment_ms,
-        radius=cfg.data.dataset.radius,
-        filter_utilized=cfg.data.dataset.filter_utilized,
-        num_traces=cfg.data.dataset.num_traces,
+        transform=ValTransforms,
         fold=fold,
         random_seed=cfg.seed,
+        **cfg.data.dataset.params
     )
 
     return train_dataset, val_dataset
@@ -102,9 +101,10 @@ def train_one_fold(cfg, fold):
     # ---- datasets ----
     train_dataset, val_dataset = build_datasets(cfg, fold)
 
-    collate_fn = None
-    if cfg.data.dataset.dataset.get("collate_fn"):
-        collate_fn = hydra.utils.get_object(cfg.data.dataset.dataset.collate_fn)
+    if cfg.data.dataset.get("collate_fn"):
+        collate_fn = hydra.utils.get_object(cfg.data.dataset.collate_fn)
+    else:
+        collate_fn = None
     
     batch_size = cfg.training.hparams.batch_size
 
@@ -127,7 +127,7 @@ def train_one_fold(cfg, fold):
 
     # ---- model ----
     ModelClass = hydra.utils.get_class(cfg.model.model_class)
-    model = ModelClass(in_channels=cfg.model.in_channels).to(device) # cfg.model.resnet,cfg.model.mil_head
+    model = ModelClass(**cfg.model.hparams).to(device) # cfg.model.resnet,cfg.model.mil_head
     # model.apply(initialize_weights)
 
     optimizer = hydra.utils.instantiate(cfg.training.optimizer, params=model.parameters())
@@ -166,15 +166,19 @@ def train_one_fold(cfg, fold):
             events = events.to(device)
 
             outputs, _ = model(traces, masks, batch_size=masks.size(0)) """
-        for data in train_loader:
-            data = data.to(device)
+        for batch in train_loader:
+
+            study_ids = batch.pop("study_id")
+            center_ids = batch.pop("center_id")
+
+            batch = to_device(batch, device)
             
-            outputs = model(data)
+            outputs = model(batch)
             
-            events = data.y[:, 0]
+            events = batch["y"][:, 0]
             events = events.bool()
 
-            durations = data.y[:, 1]
+            durations = batch["y"][:, 1]
             
             loss = task.compute_loss(outputs, durations, events)
 
@@ -221,16 +225,15 @@ def train_one_fold(cfg, fold):
 
                 loss = task.compute_loss(outputs, durations, events) """
             
-            for data in val_loader:
+            for batch in val_loader:
+                batch = to_device(batch, device)
                 
-                data = data.to(device)
+                outputs = model(batch)
                 
-                outputs = model(data)
+                events = batch["y"][:, 0]
+                events = events.bool()
 
-                events = data.y[:, 0]
-                events = events.bool()  # Ensure events are float for loss computation
-
-                durations = data.y[:, 1]
+                durations = batch["y"][:, 1]
                 
                 loss = task.compute_loss(outputs, durations, events)
 
@@ -297,14 +300,14 @@ if __name__ == "__main__":
     with initialize(version_base=None, config_path="../config"):
         cfg: DictConfig = compose(config_name="config")
 
-    cfg.training.hparams.batch_size = 32
+    cfg.training.hparams.batch_size = 8
 
     cfg.training.hparams.epochs = 150
 
     cfg.training.hparams.lr = 1e-3
 
     print(cfg)
-
+    
     res = run_training(cfg)
 
     """ print("Final validation C-index for each fold:")

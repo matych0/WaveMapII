@@ -1,6 +1,6 @@
 # config/paths/paths.yaml
 
 data_dir: "/home/matych/lib/data/WaveMap/HDF5"
-annotations_file: "/home/matych/lib/data/WaveMap/HDF5/annotations_complete.csv"
+annotations_file: "/home/matych/lib/data/WaveMap/HDF5/filtered_annotations.csv"
 save_model_dir: "/home/matych/lib/data/WaveMap/models"
 logs_dir: "/home/matych/lib/data/WaveMap/logs/mlflow"

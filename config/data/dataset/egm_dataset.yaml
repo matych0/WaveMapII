@@ -1,0 +1,18 @@
+# config/data/dataset/dataset.yaml
+
+dataset:
+  class_name: "src.dataset.dataset.EGMDataset"
+
+dataloader:
+  class_name: torch.utils.data.DataLoader
+
+collate_fn: "src.dataset.collate.collate_padding"
+
+params:
+  startswith: "LA_WMP2"
+  filter_utilized: True
+  segment_ms: 100
+  num_traces: 2000
+  controls_time_gaussian_std: 20
+  readjustonce: True
+  filter_center: null

@@ -1,5 +1,16 @@
-name: "atn_pooling_1d"
+name: "edge_conv_gnn"
 
-model_class: "src.model.graph_nn.EdgeConvGNN"
+model_class: "src.model.graph_nn.DynamicEdgeConvGNN"  
 
-in_channels: 5
+hparams:
+  in_channels: 8
+  conv_channels: [16, 32]
+  embedding_dims: [128]
+  k: 10
+  aggr: "max"
+  activation: "leakyrelu"
+  use_bn: false
+  graph_recompute: false
+  pooling: "mean"
+  classifier_dims: [64, 32]
+  dropout: 0.3

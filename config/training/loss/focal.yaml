@@ -1,0 +1,5 @@
+_target_: src.losses.focal_loss.SigmoidFocalLoss
+
+alpha: 0.75
+gamma: 3.0
+reduction: mean

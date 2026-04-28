@@ -5,16 +5,15 @@ defaults:
   - model: graph_nn
   - data/paths: paths
   - data/dataset: graph_dataset
-  - data/transforms: amplitude_norm
+  - data/transforms: no_transforms
   - training/task: survival
   - training/hparams: hparams
-  - training/loss: coxph
+  - training/loss: cox
   - training/optimizer: adamw
   - training/scheduler: cosine
-  - training/label_transforms: label_noise
 
 study_name: "WMP2"
-experiment_name: "graph_nn_tryout"
-run_name: "all_points_radius_7_mm_aggr_sum"
-seed: 220920
+experiment_name: "eliminated_bad_cases"
+run_name: "graph_attention_survival"
+seed: 250325
 folds: 3

@@ -2,15 +2,18 @@
 
 dataset:
   class_name: "src.dataset.dataset.EGMPatchDataset"
-  collate_fn: "src.dataset.collate.collate_patches"
 
 dataloader:
   class_name: torch.utils.data.DataLoader
 
-startswith: "LA_WMP2"
-segment_ms: 100
-filter_utilized: False
-num_traces: 300
-readjustonce: True
-filter_center: null
-shuffle_annotations: False
+collate_fn: "src.dataset.collate.collate_patches"
+
+params:
+  startswith: "LA_WMP2"
+  filter_utilized: False
+  segment_ms: 100
+  num_traces: 300
+  controls_time_gaussian_std: 20
+  readjustonce: True
+  filter_center: null
+

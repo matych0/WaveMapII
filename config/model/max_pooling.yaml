@@ -3,21 +3,23 @@ name: max_pooling
 
 model_class: "src.model.cox_mil_resnet.CoxMaxResnet"
 
-resnet:
-  in_features: 1
-  kernel_size: [1, 5]
-  stem_kernel_size: [1, 17]
-  blocks: [3, 4, 6, 3]
-  features: [16, 32, 64, 128]
-  activation: "LReLU"
-  downsampling_factor: 2
-  normalization: "BatchN2D"
-  preactivation: false
-  trace_stages: true
+hparams:
+  resnet:
+    dim: 2
+    in_features: 1
+    kernel_size: 5
+    stem_kernel_size: 17
+    blocks: [3, 4, 6, 3]
+    features: [16, 32, 64, 128]
+    activation: "LReLU"
+    downsampling_factor: 2
+    normalization: "BatchN"
+    preactivation: false
+    trace_stages: true
 
-mil_head:
-  input_size: 128
-  hidden_size: 128
-  output_size: 1
-  dropout: true
-  dropout_prob: ${training.hparams.dropout_prob}
+  mil_head:
+    input_size: 128
+    hidden_size: 128
+    output_size: 1
+    dropout: true
+    dropout_prob: ${training.hparams.dropout_prob}

@@ -1,15 +1,16 @@
 dataset:
   class_name: "src.dataset.dataset.GraphFeatureDataset"
-  collate_fn: null
 
 dataloader:
   class_name: torch_geometric.loader.DataLoader
 
-startswith: "LA_WMP2"
-segment_ms: null
-filter_utilized: True
-num_traces: null
-radius: 7
-readjustonce: True
-filter_center: null
-shuffle_annotations: False
+collate_fn: null
+
+params:
+  startswith: "LA_WMP2"
+  filter_utilized: True
+  segment_ms: 100
+  num_traces: null
+  controls_time_gaussian_std: 20
+  oversampling_factor: null
+  radius: 7

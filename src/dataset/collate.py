@@ -4,8 +4,7 @@ import torch
 from torch.nn.utils.rnn import pad_sequence
 
 
-def collate_padding(batch: List[Dict]) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-    """ Collates a batch of (trace_bag, duration, event) tuples for processing by zero padding. """
+""" def collate_padding(batch: List[Dict]) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     traces_bags: List[torch.Tensor] = [item[0] for item in batch]
     durations: torch.Tensor = torch.stack([item[1] for item in batch])
     events: torch.Tensor = torch.stack([item[2] for item in batch])
@@ -21,7 +20,45 @@ def collate_padding(batch: List[Dict]) -> Tuple[torch.Tensor, torch.Tensor, torc
         [[1] * bag.shape[0] + [0] * (traces_padded_bags.size(2) - bag.shape[0]) for bag in traces_bags]
     )
 
-    return traces_padded_bags, traces_mask, durations, events
+    return traces_padded_bags, traces_mask, durations, events """
+
+
+def collate_padding(batch: List[Dict]) -> Dict[str, torch.Tensor]:
+    
+    traces_bags = [item["traces"] for item in batch]
+    durations = torch.stack([item["duration"] for item in batch])
+    events = torch.stack([item["event"] for item in batch])
+
+    study_ids = [item["study_id"] for item in batch]
+    center_ids = [item["center_id"] for item in batch]
+
+    # Create y = [event, duration]
+    y = torch.stack([events, durations], dim=1)  # Shape [B, 2]
+
+    # Pad bags
+    traces_padded_bags = pad_sequence(
+        traces_bags,
+        batch_first=True,
+        padding_value=0.0
+    )  # [B, max_H, W]
+
+    traces_padded_bags = traces_padded_bags.unsqueeze(1).to(torch.float32)
+
+    # Mask
+    max_len = traces_padded_bags.size(2)
+    traces_mask = torch.zeros((len(traces_bags), max_len), dtype=torch.float32)
+
+    for i, bag in enumerate(traces_bags):
+        traces_mask[i, :bag.shape[0]] = 1.0
+
+    return {
+        "traces": traces_padded_bags,
+        "mask": traces_mask,
+        "y": y,
+        "study_id": study_ids,
+        "center_id": center_ids
+    }
+
 
 def collate_padding_merged(batch: List[Tuple[torch.Tensor, torch.Tensor]]) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """ Collates a Single_control sampled batch of (case_bag, control_bag) pairs for processing by zero padding.
@@ -116,8 +153,7 @@ def collate_validation(batch: List[Tuple[torch.Tensor, torch.Tensor, torch.Tenso
     return durations, events, traces_padded_bags, traces_masks
 
 
-def collate_patches(batch: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    """ Collates a batch of (traces, duration, event) tuples for processing by zero padding. """
+""" def collate_patches(batch: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     B = len(batch)
     CH = batch[0][0].shape[1]
     L = batch[0][0].shape[2]
@@ -148,7 +184,58 @@ def collate_patches(batch: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]
 
     events = events.to(torch.bool)
 
-    return traces_flat, masks, durations, events
+    return traces_flat, masks, durations, events """
+
+
+def collate_patches(batch: List[Dict]) -> Dict[str, torch.Tensor]:
+    """Collates a batch of dict samples with patch structure and zero padding."""
+
+    B = len(batch)
+    CH = batch[0]["traces"].shape[1]
+    L = batch[0]["traces"].shape[2]
+
+    study_ids = [item["study_id"] for item in batch]
+    center_ids = [item["center_id"] for item in batch]
+
+    # number of patches per individual
+    P_list = [item["traces"].shape[0] for item in batch]
+    P_max = max(P_list)
+
+    # allocate tensors
+    traces_padded = torch.zeros(B, P_max, CH, L)
+    masks = torch.zeros(B, P_max, dtype=torch.bool)
+
+    durations = torch.zeros(B)
+    events = torch.zeros(B)
+
+    # fill tensors
+    for i, item in enumerate(batch):
+        traces = item["traces"]
+        duration = item["duration"]
+        event = item["event"]
+
+        Pi = traces.shape[0]
+
+        traces_padded[i, :Pi] = traces
+        masks[i, :Pi] = 1
+
+        durations[i] = duration
+        events[i] = event
+
+    # reshape for CNN
+    traces_flat = traces_padded.view(B * P_max, CH, L)
+
+    # 👇 IMPORTANT: unify into y
+    events = events.float()  # must match dtype with durations
+    y = torch.stack([events, durations], dim=1)  # [B, 2]
+
+    return {
+        "traces": traces_flat,   # [B * P_max, CH, L]
+        "mask": masks,           # [B, P_max]
+        "y": y,                   # [B, 2]
+        "study_id": study_ids,
+        "center_id": center_ids
+    }
 
 
 def collate_amplitudes(batch: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:

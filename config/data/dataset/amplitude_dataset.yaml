@@ -1,14 +1,15 @@
 dataset:
   class_name: "src.dataset.dataset.AmplitudeDataset"
-  collate_fn: "src.dataset.collate.collate_amplitudes"
 
 dataloader:
   class_name: torch.utils.data.DataLoader
 
-startswith: "LA_WMP2"
-segment_ms: null
-filter_utilized: True
-num_traces: 400
-readjustonce: True
-filter_center: null
-shuffle_annotations: False
+collate_fn: "src.dataset.collate.collate_amplitudes"
+
+params:
+  startswith: "LA_WMP2"
+  filter_utilized: True
+  num_traces: 400
+  controls_time_gaussian_std: 20
+  readjustonce: True
+  shuffle_annotations: False

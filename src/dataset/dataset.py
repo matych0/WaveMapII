@@ -1,9 +1,11 @@
 import glob
 import os
 
+from flask import signals
 import h5py
 import numpy as np
 import pandas as pd
+from scipy.signal import find_peaks
 
 import torch
 from torch.utils.data import Dataset
@@ -530,7 +532,7 @@ class EGMDataset(Dataset):
         
         controls_mask = self.annotations['reccurence'] == 0
         
-        if controls_time_gaussian_std > 0:
+        if training == True and controls_time_gaussian_std > 0:
             noise = self.np_rng.normal(loc=0, scale=controls_time_gaussian_std, size=controls_mask.sum())
             noise = np.round(noise).astype(int)
             self.annotations.loc[controls_mask, 'days_to_event'] += noise
@@ -546,6 +548,9 @@ class EGMDataset(Dataset):
 
         duration = self.annotations.at[idx, 'days_to_event']
         event = self.annotations.at[idx, 'reccurence']
+
+        study_id = self.annotations.at[idx, 'eid']
+        center_id = self.annotations.at[idx, 'CenterID']
 
         if self.readjustonce:
             traces = self.maps[idx]
@@ -572,9 +577,15 @@ class EGMDataset(Dataset):
 
         traces = torch.from_numpy(traces)
         duration = torch.tensor(duration, dtype=torch.float32)
-        event = torch.tensor(event, dtype=torch.bool)
+        event = torch.tensor(event, dtype=torch.float32)
     
-        return traces, duration, event
+        return {
+            "traces": traces,
+            "duration": duration,
+            "event": event,
+            "study_id": study_id,
+            "center_id": center_id
+        }
 
 
 class EGMPatchDataset(Dataset):
@@ -631,7 +642,7 @@ class EGMPatchDataset(Dataset):
             self.annotations = pd.concat([self.annotations, self.oversampled], ignore_index=True)
         self.annotations.reset_index(drop=True, inplace=True)
         
-        if controls_time_gaussian_std > 0:
+        if training == True and controls_time_gaussian_std > 0:
             controls_mask = self.annotations['reccurence'] == 0
             noise = self.np_rng.normal(loc=0, scale=controls_time_gaussian_std, size=controls_mask.sum())
             noise = np.round(noise).astype(int)
@@ -654,6 +665,9 @@ class EGMPatchDataset(Dataset):
 
         duration = self.annotations.at[idx, 'days_to_event']
         event = self.annotations.at[idx, 'reccurence']
+
+        study_id = self.annotations.at[idx, 'eid']
+        center_id = self.annotations.at[idx, 'CenterID']
 
         if self.readjustonce:
             traces = self.patches[idx]
@@ -698,9 +712,15 @@ class EGMPatchDataset(Dataset):
 
         traces = torch.from_numpy(traces)
         duration = torch.tensor(duration, dtype=torch.float32)
-        event = torch.tensor(event, dtype=torch.bool)
+        event = torch.tensor(event, dtype=torch.float32)
         
-        return traces, duration, event
+        return {
+            "traces": traces,
+            "duration": duration,
+            "event": event,
+            "study_id": study_id,
+            "center_id": center_id
+        }
     
 
 class AmplitudeDataset(Dataset):
@@ -718,7 +738,6 @@ class AmplitudeDataset(Dataset):
             transform = None,
             random_seed: int = 3052001,
             shuffle_annotations: bool = False,
-            **kwargs,
             ):
         
         self.transform = transform
@@ -743,7 +762,7 @@ class AmplitudeDataset(Dataset):
 
         self.annotations.reset_index(drop=True, inplace=True)
         
-        if controls_time_gaussian_std > 0:
+        if training == True and controls_time_gaussian_std > 0:
             controls_mask = self.annotations['reccurence'] == 0
             noise = self.np_rng.normal(loc=0, scale=controls_time_gaussian_std, size=controls_mask.sum())
             noise = np.round(noise).astype(int)
@@ -785,6 +804,42 @@ class AmplitudeDataset(Dataset):
         event = torch.tensor(event, dtype=torch.bool)
 
         return voltage, duration, event
+
+
+def egm_duration(signals, fs, threshold_ratio=0.1):
+    peak_amp = np.max(np.abs(signals), axis=1, keepdims=True)
+    threshold = threshold_ratio * peak_amp
+
+    active = np.abs(signals) > threshold  # boolean mask
+
+    durations = np.zeros(signals.shape[0])
+
+    for i in range(signals.shape[0]):
+        idx = np.where(active[i])[0]
+        if len(idx) > 0:
+            durations[i] = (idx[-1] - idx[0]) / fs * 1000  # ms
+
+    return durations
+
+
+def num_deflections(signals, prominence_ratio=0.1):
+    n = signals.shape[0]
+    counts = np.zeros(n)
+
+    for i in range(n):
+        s = signals[i]
+        peak_amp = np.max(np.abs(s))
+        prominence = prominence_ratio * peak_amp
+
+        peaks, _ = find_peaks(np.abs(s), prominence=prominence)
+        counts[i] = len(peaks)
+
+    return counts
+
+
+def max_dvdt(signals, fs):
+    dv = np.diff(signals, axis=1) * fs
+    return np.max(np.abs(dv), axis=1)
     
 
 class GraphFeatureDataset(Dataset):
@@ -796,13 +851,14 @@ class GraphFeatureDataset(Dataset):
         startswith: str = "",  
         training: bool = True,
         fold: int = 0,
-        radius: float = 4.0,
+        radius: float = 7.0,
         filter_utilized: bool = False, 
         num_traces: int = None,
+        segment_ms: int = None,
         controls_time_gaussian_std: int = 0, 
+        oversampling_factor: int = None,
         transform = None,
         random_seed: int = 3052001,
-        **kwargs,
     ):
 
         super().__init__()
@@ -822,6 +878,19 @@ class GraphFeatureDataset(Dataset):
         else:
             self.annotations = self.annotations[self.annotations["fold"] == fold]
 
+        # Recurrence cases oversampling 
+        if training and oversampling_factor:
+            self.reccurence = self.annotations[self.annotations['reccurence'] == 1]
+            self.oversampled = pd.concat([self.reccurence] * (oversampling_factor - 1), ignore_index=True)
+            self.annotations = pd.concat([self.annotations, self.oversampled], ignore_index=True)
+            self.annotations.reset_index(drop=True, inplace=True)
+
+        if training == True and controls_time_gaussian_std > 0:
+            controls_mask = self.annotations['reccurence'] == 0
+            noise = self.np_rng.normal(loc=0, scale=controls_time_gaussian_std, size=controls_mask.sum())
+            noise = np.round(noise).astype(int)
+            self.annotations.loc[controls_mask, 'days_to_event'] += noise
+
         self.annotations.reset_index(drop=True, inplace=True)
 
         filepaths = collect_filepaths(self.annotations, data_dir, startswith)
@@ -830,15 +899,16 @@ class GraphFeatureDataset(Dataset):
 
         for idx, file_fullpath in enumerate(filepaths):
 
-            _, _, metadata = read_hdf(
+            traces, fs, metadata = read_hdf(
                 file_fullpath,
                 return_fs=False,
-                metadata_keys=["peak2peak", "utilized", "rov LAT", "ref LAT", "roving x", "roving y", "roving z"]
+                metadata_keys=["peak2peak", "utilized", "rov LAT", "ref LAT", "end time", "roving x", "roving y", "roving z"]
             )
 
             Vpp = metadata["peak2peak"]
             rov_LAT = metadata["rov LAT"]
             ref_LAT = metadata["ref LAT"]
+            end_time = metadata["end time"]
             x = metadata["roving x"]
             y = metadata["roving y"]
             z = metadata["roving z"]
@@ -851,6 +921,23 @@ class GraphFeatureDataset(Dataset):
                 Vpp = Vpp[utilized]
                 rov_LAT = rov_LAT[utilized]
                 ref_LAT = ref_LAT[utilized]
+                end_time = end_time[utilized]
+                traces = traces[utilized]
+
+            if segment_ms:
+                indices = compute_LAT_indices(rov_LAT, end_time, fs, traces.shape[1])
+                traces = segment_signals(traces, indices, segment_ms, fs)
+
+            # ------------------------
+            # NEW FEATURES ENGINEERING
+            # ------------------------
+            
+            egm_durations = egm_duration(traces, fs, threshold_ratio=0.1) / 100
+            egm_durations = np.stack([egm_durations], axis=1)
+            deflections = num_deflections(traces, prominence_ratio=0.1) / 10
+            deflections = np.stack([deflections], axis=1)
+            dvdt_max = max_dvdt(traces, fs) / 1000
+            dvdt_max = np.stack([dvdt_max], axis=1)
 
             # coord standardization
             coords_norm = np.copy(coords)
@@ -870,7 +957,7 @@ class GraphFeatureDataset(Dataset):
             delta_LAT = np.stack([delta_LAT], axis=1)
 
             # node features construction
-            node_features = np.hstack([Vpp, delta_LAT, coords_norm]) # 
+            node_features = np.hstack([Vpp, dvdt_max, delta_LAT, egm_durations, deflections, coords_norm]) # 
 
             # convert to tensors
             pos = torch.tensor(coords, dtype=torch.float)
@@ -897,6 +984,12 @@ class GraphFeatureDataset(Dataset):
                 edge_attr=edge_len,
                 y=y_label
             )
+
+            study_id = file_fullpath.split('/')[-2]
+            center_id = self.annotations.at[idx, "CenterID"]
+
+            graph.study_id = study_id
+            graph.center_id = center_id
 
             self.graphs.append(graph)
 

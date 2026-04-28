@@ -5,6 +5,8 @@ import hydra
 from omegaconf import DictConfig
 import mlflow
 import mlflow.pytorch
+import torch
+import tempfile
 
 
 from .engine import run_training
@@ -42,15 +44,21 @@ def main(cfg: DictConfig):
 
         # log fold results
         for i, fold in enumerate(results):
-            with mlflow.start_run(run_name=f"Fold_{i+1}", nested=True) as child_run:
+
+            with mlflow.start_run(run_name=f"Fold_{i}", nested=True) as child_run:
                 print(f"Run ID: {child_run.info.run_id}")
-                mlflow.set_tag("fold", i + 1)
+                mlflow.set_tag("fold", i)
 
                 """ mlflow.pytorch.log_model(
                     pytorch_model=fold["model"],
                     artifact_path="model",
                     registered_model_name=f"{cfg.model.name}"  # optional but recommended
                 ) """
+
+                with tempfile.TemporaryDirectory() as tmp_dir:
+                    model_path = os.path.join(tmp_dir, f"model_fold_{fold['fold']}.pth")
+                    torch.save(fold["model"].state_dict(), model_path)
+                    mlflow.log_artifact(model_path)
 
                 history = fold["history"]
 
