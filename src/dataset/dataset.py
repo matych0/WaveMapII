@@ -89,7 +89,7 @@ def collect_filepaths(annotations_df, data_dir, startswith):
     """ Collects filepaths from the dir."""
     filepaths = list()
     for study_id in annotations_df["eid"].values:
-        file_fullpath = glob.glob(os.path.join(data_dir, study_id, f"{startswith}*"), recursive=False)[0]
+        file_fullpath = glob.glob(os.path.join(data_dir, study_id, f"*{startswith}*"), recursive=False)[0]
         filepaths.append(file_fullpath)
     return filepaths
 
@@ -147,7 +147,7 @@ def collect_filepaths_and_maps(data, data_dir, startswith, readjustonce, segment
     """ Collects filepaths and maps from the dir."""
     filepaths, maps = list(), list()
     for study_id in data["eid"].values:
-        file_fullpath = glob.glob(os.path.join(data_dir, study_id, f"{startswith}*"), recursive=False)[0]
+        file_fullpath = glob.glob(os.path.join(data_dir, study_id, f"*{startswith}*"), recursive=False)[0]
         filepaths.append(file_fullpath)
         if readjustonce:
             traces, fs, metadata = read_hdf(file_fullpath, return_fs=True, metadata_keys=["rov LAT", "end time", "utilized"])
@@ -300,8 +300,8 @@ class HDFDataset(Dataset):
         control_idx = self.np_rng.choice(range(index, self.annotations.shape[0]))
         
         if self.readjustonce:
-            case = self.case_maps[idx]
-            control = self.control_maps[control_idx]
+            case = self.case_maps[idx].copy()  # copy: transforms modify in place
+            control = self.control_maps[control_idx].copy()
 
         else:
             case, case_fs, case_metadata = read_hdf(self.case_maps[idx], return_fs=True, metadata_keys=["rov LAT", "end time", "utilized"])
@@ -385,7 +385,7 @@ class ValidationDataset(Dataset):
         event = self.annotations.at[idx, 'reccurence']
 
         if self.readjustonce:
-            traces = self.maps[idx]
+            traces = self.maps[idx].copy()  # copy: transforms modify in place
                 
         else:
             traces, fs, metadata = read_hdf(self.maps[idx], return_fs=True, metadata_keys=["rov LAT", "end time", "utilized"])
@@ -455,7 +455,7 @@ class ValidationDatasetInference(Dataset):
         peak_to_peak = self.peak_to_peak[idx]
 
         if self.readjustonce:
-            traces = self.maps[idx]
+            traces = self.maps[idx].copy()  # copy: transforms modify in place
 
         else:
             traces, fs, metadata = read_hdf(self.maps[idx], return_fs=True, metadata_keys=["rov LAT", "end time", "utilized"])
@@ -553,7 +553,7 @@ class EGMDataset(Dataset):
         center_id = self.annotations.at[idx, 'CenterID']
 
         if self.readjustonce:
-            traces = self.maps[idx]
+            traces = self.maps[idx].copy()  # copy: shuffle/transforms modify in place
 
         else:
             traces, fs, metadata = read_hdf(self.maps[idx], return_fs=True, metadata_keys=["rov LAT", "end time", "utilized"])
@@ -670,7 +670,7 @@ class EGMPatchDataset(Dataset):
         center_id = self.annotations.at[idx, 'CenterID']
 
         if self.readjustonce:
-            traces = self.patches[idx]
+            traces = self.patches[idx].copy()  # copy: shuffle/transforms modify in place
 
         else:
             patches, fs, metadata = read_hdf(self.filepaths[idx], return_fs=True, metadata_keys=["rov LAT", "end time", "utilized", "pt number"])
@@ -788,7 +788,7 @@ class AmplitudeDataset(Dataset):
     def __getitem__(self, idx):
         duration = self.annotations.at[idx, 'days_to_event']
         event = self.annotations.at[idx, 'reccurence']
-        voltage = self.voltages[idx]
+        voltage = self.voltages[idx].copy()  # copy: shuffle/transforms modify in place
 
         if self.num_traces:
             if self.training:
@@ -999,7 +999,7 @@ class GraphFeatureDataset(Dataset):
 
     def get(self, idx):
 
-        data = self.graphs[idx]
+        data = self.graphs[idx].clone()  # clone: node sampling/transforms modify in place
 
         if self.num_traces:
             #if self.training:
@@ -1104,5 +1104,5 @@ if __name__ == "__main__":
     plt.show()
 
     print("Done")
-        
+
 

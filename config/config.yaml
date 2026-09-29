@@ -6,14 +6,14 @@ defaults:
   - data/paths: paths
   - data/dataset: graph_dataset
   - data/transforms: no_transforms
-  - training/task: survival
+  - training/task: classification
   - training/hparams: hparams
-  - training/loss: cox
+  - training/loss: bce
   - training/optimizer: adamw
   - training/scheduler: cosine
 
 study_name: "WMP2"
 experiment_name: "eliminated_bad_cases"
-run_name: "graph_attention_survival"
+run_name: "graph_attention_consider_excluded_classification"
 seed: 250325
 folds: 3
