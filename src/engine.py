@@ -226,6 +226,8 @@ def train_one_fold(cfg, fold):
                 loss = task.compute_loss(outputs, durations, events) """
             
             for batch in val_loader:
+                batch.pop("study_id")
+                batch.pop("center_id")
                 batch = to_device(batch, device)
                 
                 outputs = model(batch)

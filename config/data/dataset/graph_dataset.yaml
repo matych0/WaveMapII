@@ -7,7 +7,7 @@ dataloader:
 collate_fn: null
 
 params:
-  startswith: "LA_WMP2"
+  startswith: "WM"
   filter_utilized: True
   segment_ms: 100
   num_traces: null

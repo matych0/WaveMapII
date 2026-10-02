@@ -9,7 +9,7 @@ dataloader:
 collate_fn: "src.dataset.collate.collate_padding"
 
 params:
-  startswith: "LA_WMP2"
+  startswith: "SR"
   filter_utilized: True
   segment_ms: 100
   num_traces: 2000

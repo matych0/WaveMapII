@@ -1,0 +1,98 @@
+{
+  "study_name": "WMP2",
+  "experiment_name": "eliminated_bad_cases",
+  "run_name": "graph_attention_excluded_SR_cleaned_classification",
+  "seed": 250325,
+  "folds": 3,
+  "model": {
+    "name": "edge_conv_gnn",
+    "model_class": "src.model.graph_nn.DynamicEdgeConvGNN",
+    "hparams": {
+      "in_channels": 8,
+      "conv_channels": [
+        16,
+        32
+      ],
+      "embedding_dims": [
+        128
+      ],
+      "k": 10,
+      "aggr": "max",
+      "activation": "leakyrelu",
+      "use_bn": false,
+      "graph_recompute": false,
+      "pooling": "mean",
+      "classifier_dims": [
+        64,
+        32
+      ],
+      "dropout": 0.3
+    }
+  },
+  "data": {
+    "paths": {
+      "data_dir": "/home/matych/lib/data/WaveMap/HDF5",
+      "annotations_file": "/home/matych/lib/data/WaveMap/HDF5/filtered_annotations.csv",
+      "save_model_dir": "/home/matych/lib/data/WaveMap/models",
+      "logs_dir": "/home/matych/lib/data/WaveMap/logs/mlflow"
+    },
+    "dataset": {
+      "dataset": {
+        "class_name": "src.dataset.dataset.GraphFeatureDataset"
+      },
+      "dataloader": {
+        "class_name": "torch_geometric.loader.DataLoader"
+      },
+      "collate_fn": null,
+      "params": {
+        "startswith": "SR",
+        "filter_utilized": true,
+        "segment_ms": 100,
+        "num_traces": null,
+        "controls_time_gaussian_std": 20,
+        "oversampling_factor": null,
+        "radius": 7
+      }
+    },
+    "transforms": {
+      "train": null,
+      "val": null
+    }
+  },
+  "training": {
+    "task": {
+      "handler": "src.tasks.classification.ClassificationTask"
+    },
+    "hparams": {
+      "epochs": 100,
+      "batch_size": 32,
+      "n_controls": 8,
+      "cox_regularization": 0.01,
+      "dropout_prob": 0.25,
+      "lr": 0.001,
+      "weight_decay": 0.0001
+    },
+    "loss": {
+      "_target_": "torch.nn.BCEWithLogitsLoss",
+      "pos_weight": {
+        "_target_": "torch.tensor",
+        "data": [
+          3.0
+        ]
+      }
+    },
+    "optimizer": {
+      "_target_": "torch.optim.AdamW",
+      "lr": "${training.hparams.lr}",
+      "weight_decay": "${training.hparams.weight_decay}",
+      "betas": [
+        0.95,
+        0.9995
+      ]
+    },
+    "scheduler": {
+      "name": "cosine",
+      "warmup_fraction": 0.1
+    }
+  }
+}

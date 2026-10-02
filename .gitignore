@@ -48,6 +48,7 @@ outputs/
 multirun/
 inference_results/
 *.db
+local_scripts/
 
 # Data Management
 data/* 

@@ -2,18 +2,18 @@
 
 defaults:
   - _self_
-  - model: graph_nn
+  - model: atn_pooling
   - data/paths: paths
-  - data/dataset: graph_dataset
-  - data/transforms: no_transforms
-  - training/task: classification
+  - data/dataset: egm_dataset
+  - data/transforms: egm_augmentations
+  - training/task: survival
   - training/hparams: hparams
-  - training/loss: bce
+  - training/loss: cox
   - training/optimizer: adamw
   - training/scheduler: cosine
 
 study_name: "WMP2"
-experiment_name: "eliminated_bad_cases"
-run_name: "graph_attention_consider_excluded_classification"
+experiment_name: "code_debugging"
+run_name: "transforms_effect_piling_up_egm_resnet_filtered_SR_minimalistic_resnet"
 seed: 250325
 folds: 3
