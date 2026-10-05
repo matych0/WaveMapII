@@ -2,10 +2,10 @@
 
 defaults:
   - _self_
-  - model: atn_pooling
+  - model: egm_graph_nn
   - data/paths: paths
-  - data/dataset: egm_dataset
-  - data/transforms: egm_augmentations
+  - data/dataset: graph_egm_dataset
+  - data/transforms: egm_graph_augmentations
   - training/task: survival
   - training/hparams: hparams
   - training/loss: cox
@@ -13,7 +13,7 @@ defaults:
   - training/scheduler: cosine
 
 study_name: "WMP2"
-experiment_name: "code_debugging"
-run_name: "transforms_effect_piling_up_egm_resnet_filtered_SR_minimalistic_resnet"
+experiment_name: "gnn_resnet_integration"
+run_name: "survival_graph_recompute"
 seed: 250325
 folds: 3

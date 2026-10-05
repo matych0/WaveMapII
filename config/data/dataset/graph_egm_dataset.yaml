@@ -1,0 +1,17 @@
+dataset:
+  class_name: "src.dataset.dataset.GraphFeatureDataset"
+
+dataloader:
+  class_name: torch_geometric.loader.DataLoader
+
+collate_fn: null
+
+params:
+  startswith: "SR"
+  filter_utilized: True
+  segment_ms: 100
+  num_traces: 1000
+  controls_time_gaussian_std: 20
+  oversampling_factor: null
+  radius: 7
+  return_traces: True

@@ -234,6 +234,30 @@ def random_node_sample(data, radius, max_nodes=500):
     return data
 
 
+def random_node_sample_with_traces(data, radius, max_nodes=500):
+    """ Same as random_node_sample, but also subsamples the per-node EGM traces."""
+
+    N = data.x.shape[0]
+
+    if N > max_nodes:
+
+        idx = torch.randperm(N)[:max_nodes]
+
+        data.x = data.x[idx]
+        data.pos = data.pos[idx]
+        data.traces = data.traces[idx]
+
+        edge_index = radius_graph(data.pos, r=radius)
+        data.edge_index = edge_index
+
+        start, end = edge_index
+        edge_len = torch.norm(data.pos[start] - data.pos[end], dim=1, keepdim=True)
+        edge_len = edge_len / radius
+        data.edge_attr = edge_len
+
+    return data
+
+
 class HDFDataset(Dataset):
     """ Single-control training dataset."""
     def __init__(
@@ -859,12 +883,18 @@ class GraphFeatureDataset(Dataset):
         oversampling_factor: int = None,
         transform = None,
         random_seed: int = 3052001,
+        return_traces: bool = False,
     ):
 
         super().__init__()
 
         self.radius = radius
         self.transform = transform
+        self.return_traces = return_traces  # store EGMs per node; transform then applies to traces
+
+        if return_traces:
+            # PyG Dataset.__getitem__ applies self.transform to the Data object, keep the EGM transform separate
+            self.trace_transform, self.transform = transform, None
         self.filter_utilized = filter_utilized
         self.training = training
         self.num_traces = num_traces
@@ -991,6 +1021,9 @@ class GraphFeatureDataset(Dataset):
             graph.study_id = study_id
             graph.center_id = center_id
 
+            if self.return_traces:
+                graph.traces = torch.tensor(traces, dtype=torch.float)
+
             self.graphs.append(graph)
 
     def len(self):
@@ -1003,9 +1036,17 @@ class GraphFeatureDataset(Dataset):
 
         if self.num_traces:
             #if self.training:
-            data = random_node_sample(data, self.radius, max_nodes=self.num_traces)
+            if self.return_traces:
+                data = random_node_sample_with_traces(data, self.radius, max_nodes=self.num_traces)
+            else:
+                data = random_node_sample(data, self.radius, max_nodes=self.num_traces)
 
-        if self.transform:
+        if self.return_traces and self.trace_transform:
+            # transforms must keep the trace order, row i belongs to node i
+            traces = self.trace_transform(data.traces.numpy())
+            data.traces = torch.from_numpy(np.ascontiguousarray(traces)).float()
+
+        elif self.transform:
             data = self.transform(data)
 
         return data

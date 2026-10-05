@@ -1,0 +1,44 @@
+# config/data/transforms/egm_graph_augmentations.yaml
+# shuffle: false everywhere, EGM order must match the graph node order
+
+train:
+  _target_: torchvision.transforms.Compose
+  transforms:
+    - _target_: src.transforms.transforms.RandomPolarity
+      probability: 0.5
+      shuffle: false
+      random_seed: ${seed}
+
+    - _target_: src.transforms.transforms.RandomAmplifier
+      probability: 0.2
+      limit: 0.2
+      shuffle: false
+      random_seed: ${seed}
+
+    - _target_: src.transforms.transforms.RandomTemporalScale
+      probability: 0.2
+      limit: 0.2
+      shuffle: false
+      random_seed: ${seed}
+
+    - _target_: src.transforms.transforms.RandomShift
+      probability: 0.5
+      shift_range: 0.3
+      shuffle: false
+      random_seed: ${seed}
+
+    - _target_: src.transforms.transforms.RandomGaussian
+      probability: 0.2
+      low_limit: 10
+      high_limit: 30
+      shuffle: false
+      random_seed: ${seed}
+
+    - _target_: src.transforms.transforms.TanhNormalize
+      factor: 5
+
+val:
+  _target_: torchvision.transforms.Compose
+  transforms:
+    - _target_: src.transforms.transforms.TanhNormalize
+      factor: 5
